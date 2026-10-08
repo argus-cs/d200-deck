@@ -84,9 +84,10 @@ fn enabled_by_default() -> bool {
     true
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Window {
+    #[default]
     Clock,
     Stats,
     Image,

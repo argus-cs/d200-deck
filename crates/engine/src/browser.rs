@@ -74,6 +74,10 @@ pub fn start() -> (Bridge, Receiver<Tabs>) {
 }
 
 impl Bridge {
+    pub fn is_connected(&self) -> bool {
+        self.inner.outgoing.lock().unwrap().is_some()
+    }
+
     /// Selects a tab and focuses its Edge window; waits for the extension to confirm.
     pub fn activate(&self, tab: i64) -> Result<()> {
         let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);

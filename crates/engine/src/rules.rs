@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, Key, Rule, RuleMode};
 
@@ -31,6 +31,48 @@ pub struct Tabs {
 pub struct Tab {
     pub id: i64,
     pub url: String,
+}
+
+/// A pretend context to try rules without opening the apps: one rule's app
+/// or site in front, some others open. Indices into `Config::rules`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Simulation {
+    pub focus: Option<usize>,
+    pub open: Vec<usize>,
+}
+
+pub fn simulated_context(config: &Config, simulation: &Simulation) -> Context {
+    let mut ctx = Context::default();
+    let mut next_id = -1;
+    let mut fake_tab = |site: &str| {
+        // Wildcards become a plain segment so the pattern still matches.
+        let tab = Tab { id: next_id, url: format!("https://{}/", site.replace('*', "x")) };
+        next_id -= 1;
+        tab
+    };
+    for rule in simulation.open.iter().filter_map(|&i| config.rules.get(i)) {
+        if let Some(process) = rule.process() {
+            ctx.running.insert(process);
+        } else if let Some(site) = rule.site() {
+            ctx.tabs.open.push(fake_tab(&site));
+        }
+    }
+    if let Some(rule) = simulation.focus.and_then(|i| config.rules.get(i)) {
+        if let Some(process) = rule.process() {
+            ctx.focused = Some(process);
+        } else if let Some(site) = rule.site() {
+            let tab = fake_tab(&site);
+            ctx.focused = Some(BROWSER.into());
+            ctx.tabs.active = Some(tab.clone());
+            ctx.tabs.open.push(tab);
+        }
+    }
+    ctx
+}
+
+/// "https://www.youtube.com/watch?v=1" → "youtube.com".
+pub fn host_of(url: &str) -> Option<String> {
+    host_and_path(url).map(|t| t.split('/').next().unwrap_or_default().to_string())
 }
 
 /// A key as the device should show it, and the rule it came from.
@@ -260,6 +302,29 @@ mod tests {
         let (a, b) = (tab(1, "https://meet.google.com/a"), tab(2, "https://meet.google.com/b"));
         let c = with_tabs(ctx(None, &[]), Some(b.clone()), &[a, b]);
         assert_eq!(matching_tab(&config().rules[2], &c), Some(2));
+    }
+
+    #[test]
+    fn simulation_activates_the_chosen_rules() {
+        let config = config();
+        let sim = Simulation { focus: Some(3), open: vec![0, 2] };
+        let ctx = simulated_context(&config, &sim);
+        assert_eq!(active_rules(&config, &ctx), [0, 2, 3]);
+        let photoshop = simulated_context(&config, &Simulation { focus: Some(1), open: vec![] });
+        assert_eq!(active_rules(&config, &photoshop), [1]);
+        assert!(active_rules(&config, &simulated_context(&config, &Simulation::default())).is_empty());
+        let wildcard = Config {
+            rules: vec![rule("PRs", site("github.com/*/pulls"), RuleMode::Focus, &[])],
+            ..Config::default()
+        };
+        let ctx = simulated_context(&wildcard, &Simulation { focus: Some(0), open: vec![] });
+        assert_eq!(active_rules(&wildcard, &ctx), [0]);
+    }
+
+    #[test]
+    fn host_of_strips_www_and_path() {
+        assert_eq!(host_of("https://www.youtube.com/watch?v=1").as_deref(), Some("youtube.com"));
+        assert_eq!(host_of("nothing"), None);
     }
 
     #[test]

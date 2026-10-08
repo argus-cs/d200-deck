@@ -15,6 +15,7 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - `crates/engine/src/bin/deckd.rs` — o app sem interface.
 - `crates/engine/src/rules.rs` — quais regras valem e o que cada tecla mostra (lógica pura, testável). `context.rs` — o lado Windows: janela da frente por evento (`SetWinEventHook`), processos a cada 1 s (só os que regras "aberto" observam) e trazer um app para a frente.
 - `crates/engine/src/browser.rs` — WebSocket em `127.0.0.1:47820` para a extensão; recusa qualquer Origin que não seja de extensão (`chrome-extension://`), então nenhuma página da web consegue falar com ele.
+- `app/` — o app Tauri 2. `app/src/` é o frontend em Svelte 5 + TypeScript (`lib/types.ts` espelha o `runtime::Status`). `app/src-tauri/src/main.rs` sobe o motor (`runtime::spawn`), repassa cada `Status` para a janela (evento `status`) e para a bandeja, e expõe os comandos `get_status`, `set_paused`, `resend`, `simulate` e `open_config`. `tray.rs` é o menu da bandeja. Fechar a janela destrói o WebView e o motor continua na bandeja; só "Sair" encerra. O início automático passa `--hidden` (abre só na bandeja).
 - `extension-edge/` — extensão Manifest V3 (permissões `tabs` e `alarms`), carregada em `edge://extensions` → Modo de desenvolvedor → Carregar sem pacote. Depois de editar, clicar em recarregar na extensão. A porta está fixa nos dois lados (`PORT`).
 
 ## Regras de app (Fase 2)
@@ -38,7 +39,11 @@ cargo test -p d200
 cargo run -p d200 --bin probe -- list
 cargo run -p d200 --bin probe -- test
 cargo run -p deck-engine --bin deckd
+cd app && npm install && npx tauri dev          # app com recarga do frontend
+cd app && npx tauri build --debug --no-bundle   # target/debug/d200-deck.exe
+cd app && npm run check                         # tipos do frontend
 ```
+O app e o `deckd` não podem rodar juntos: os dois querem o aparelho e a porta 47820.
 Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 
 ## Protocolo (resumo)

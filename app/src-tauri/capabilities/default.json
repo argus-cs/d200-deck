@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "A janela só fala com os comandos do próprio D200 Deck.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

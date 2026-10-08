@@ -33,6 +33,7 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - Ação "abrir" de um `.exe` escurece a tecla enquanto o app não roda (`Action::watched_process`; `watch: false` desliga). Explorer não conta; `wt.exe` vira `windowsterminal.exe`.
 - Ícones de app (`icons::app_icon`, via `IShellItemImageFactory`) e de site (favicon do cache do Edge pela extensão, permissão `favicon`) são salvos como PNG em `%APPDATA%\D200Deck\icons`.
 - Visor (`screen.rs`): `config.screen` e `rule.screen`; conteúdos desenhados pelo aparelho (`device_clock`, `device_stats`) ou pelo app (relógio, uso do PC com GPU via PDH, os dois juntos, agora tocando com capa via `GlobalSystemMediaTransportControlsSessionManager`, cronômetro, imagem, texto). Redesenha só quando a assinatura muda. O campo antigo `window` ainda é lido.
+- Toque e segurar no visor (`runtime.rs`): `screen.action` roda no toque; `screen.hold` roda ao segurar 700 ms, ainda com o dedo no visor, e é uma ação (`action`) ou uma sequência de conteúdos (`cycle`, avança um a cada vez e volta ao principal). O passo da sequência fica na memória, por regra. Sem `hold`, segurar conta como toque. No cronômetro, toque inicia/pausa e dois toques em até 450 ms zeram.
 - `cargo run -p deck-engine --bin try-screen -- <pasta>` desenha exemplos de visor e de teclas em PNG para conferir.
 
 ## Interface (depois da Fase 5)

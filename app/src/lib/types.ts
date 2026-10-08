@@ -70,14 +70,19 @@ export interface Screen {
   color: string;
   accent: string;
   action?: Action | null;
+  hold?: ScreenHold | null;
 }
+
+/** What holding the visor does: an action, or show the next of `contents`
+ * (after the last one, back to the visor's own content). */
+export type ScreenHold = { type: 'action'; action?: Action | null } | { type: 'cycle'; contents: ScreenContent[] };
 
 export const SCREEN_TYPES: { type: ScreenContent['type']; label: string; hint: string }[] = [
   { type: 'clock', label: 'Relógio', hint: 'Desenhado pelo app, nas suas cores' },
   { type: 'clock_stats', label: 'Relógio + uso do PC', hint: 'Hora à esquerda, CPU, RAM e GPU à direita' },
   { type: 'stats', label: 'Uso do PC', hint: 'CPU, memória, GPU e rede com barras' },
   { type: 'now_playing', label: 'Agora tocando', hint: 'Música ou vídeo de qualquer player' },
-  { type: 'timer', label: 'Cronômetro / Pomodoro', hint: 'Toque inicia e pausa; segurar zera' },
+  { type: 'timer', label: 'Cronômetro / Pomodoro', hint: 'Toque inicia e pausa; toque duplo zera' },
   { type: 'text', label: 'Texto', hint: 'Um texto seu, do tamanho que couber' },
   { type: 'image', label: 'Imagem', hint: 'Um ícone ou imagem sua' },
   { type: 'device_clock', label: 'Relógio do aparelho', hint: 'O relógio que o próprio D200 desenha' },
@@ -109,6 +114,7 @@ export const newScreen = (type: ScreenContent['type'] = 'clock'): Screen => ({
   color: '#ECEDEF',
   accent: '#F0A63A',
   action: null,
+  hold: null,
 });
 
 /** The default visor, like `Config::default_screen` (older configs only have `window`). */

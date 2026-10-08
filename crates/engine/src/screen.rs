@@ -302,11 +302,11 @@ fn body(screen: &Screen, content: &ScreenContent, data: &Data) -> String {
             let ink = if done { screen.background.as_str() } else { fg.as_str() };
             out += &text(WIDTH / 2, 112, 92, 600, ink, 1.0, "middle", &shown);
             let label = match (*minutes, done, data.timer.running(), data.timer.elapsed().is_zero()) {
-                (_, true, _, _) => "Tempo esgotado · segure para zerar".to_string(),
+                (_, true, _, _) => "Tempo esgotado · toque duplo zera".to_string(),
                 (0, _, true, _) => "Cronômetro · toque para pausar".to_string(),
                 (_, _, true, _) => format!("{minutes} min · toque para pausar"),
                 (_, _, false, true) => "Toque para iniciar".to_string(),
-                _ => "Pausado · segure para zerar".to_string(),
+                _ => "Pausado · toque duplo zera".to_string(),
             };
             out += &text(WIDTH / 2, 156, 22, 400, ink, 0.75, "middle", &label);
             if let Some(progress) = progress {

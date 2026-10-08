@@ -24,6 +24,8 @@
     maximize: 'M6 6h12v12H6z',
     restore: 'M8 9h10v10H8z M6 15V5h10',
     close: 'M6 6l12 12 M18 6L6 18',
+    up: 'M6 15l6-6 6 6',
+    down: 'M6 9l6 6 6-6',
     eyedropper: 'M14.5 6.5l3 3 M16 3l5 5-2.5 2.5-5-5z M14.5 6.5L5 16l-1 4 4-1 9.5-9.5',
   };
 

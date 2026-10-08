@@ -39,6 +39,23 @@ pub struct Screen {
     /// Runs when the visor is tapped (the timer uses taps itself).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<Action>,
+    /// What holding the visor does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold: Option<ScreenHold>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ScreenHold {
+    Action {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action: Option<Action>,
+    },
+    /// Each hold shows the next of these, then back to the screen's own content.
+    Cycle {
+        #[serde(default)]
+        contents: Vec<ScreenContent>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -108,6 +125,44 @@ impl Screen {
             color: default_screen_color(),
             accent: default_screen_accent(),
             action: None,
+            hold: None,
+        }
+    }
+
+    /// What it shows now: its own content, or one of the hold cycle's.
+    pub fn showing(&self, step: usize) -> ScreenContent {
+        match &self.hold {
+            Some(ScreenHold::Cycle { contents }) if !contents.is_empty() => match step % (contents.len() + 1) {
+                0 => self.content.clone(),
+                i => contents[i - 1].clone(),
+            },
+            _ => self.content.clone(),
+        }
+    }
+
+    /// Whether holding it does anything; when not, a long press is a tap.
+    pub fn holds(&self) -> bool {
+        match &self.hold {
+            Some(ScreenHold::Action { action }) => action.is_some(),
+            Some(ScreenHold::Cycle { contents }) => !contents.is_empty(),
+            None => false,
+        }
+    }
+}
+
+impl ScreenContent {
+    /// A name for people, like the editor shows.
+    pub fn name(&self) -> &'static str {
+        match self {
+            ScreenContent::DeviceClock => "Relógio do aparelho",
+            ScreenContent::DeviceStats => "Uso do PC do aparelho",
+            ScreenContent::Clock { .. } => "Relógio",
+            ScreenContent::Stats { .. } => "Uso do PC",
+            ScreenContent::ClockStats { .. } => "Relógio + uso do PC",
+            ScreenContent::NowPlaying => "Agora tocando",
+            ScreenContent::Timer { .. } => "Cronômetro",
+            ScreenContent::Image { .. } => "Imagem",
+            ScreenContent::Text { .. } => "Texto",
         }
     }
 }
@@ -485,12 +540,23 @@ fn validate_screen(screen: &Screen) -> Result<()> {
             bail!("cor precisa ser #RRGGBB (está {color:?})");
         }
     }
-    let icon = match &screen.content {
-        ScreenContent::Image { icon } => icon.as_deref(),
-        ScreenContent::Timer { minutes } if *minutes > 600 => bail!("o timer vai até 600 minutos"),
-        _ => None,
+    let cycle: &[ScreenContent] = match &screen.hold {
+        Some(ScreenHold::Cycle { contents }) => contents,
+        _ => &[],
     };
-    validate_face(icon, &screen.background, screen.action.as_ref())
+    for content in std::iter::once(&screen.content).chain(cycle) {
+        let icon = match content {
+            ScreenContent::Image { icon } => icon.as_deref(),
+            ScreenContent::Timer { minutes } if *minutes > 600 => bail!("o timer vai até 600 minutos"),
+            _ => None,
+        };
+        validate_face(icon, &screen.background, None)?;
+    }
+    validate_face(None, &screen.background, screen.action.as_ref())?;
+    if let Some(ScreenHold::Action { action }) = &screen.hold {
+        validate_face(None, &screen.background, action.as_ref()).context("ao segurar")?;
+    }
+    Ok(())
 }
 
 fn validate_face(icon: Option<&str>, color: &str, action: Option<&Action>) -> Result<()> {
@@ -574,6 +640,22 @@ mod tests {
         assert_eq!(face.action, None);
         let bad = r#"{ "keys": { "1": { "toggle": { "color": "red" } } } }"#;
         assert!(serde_json::from_str::<Config>(bad).unwrap().validate().is_err());
+    }
+
+    #[test]
+    fn holding_the_visor_cycles_through_contents() {
+        let json = r#"{ "screen": {
+            "content": { "type": "clock" },
+            "hold": { "type": "cycle", "contents": [ { "type": "stats" }, { "type": "now_playing" } ] }
+        } }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let screen = config.default_screen();
+        let names: Vec<&str> = (0..4).map(|step| screen.showing(step).name()).collect();
+        assert_eq!(names, ["Relógio", "Uso do PC", "Agora tocando", "Relógio"]);
+        let action = r#"{ "screen": { "content": { "type": "clock" },
+            "hold": { "type": "action", "action": { "type": "hotkey", "keys": "Ctrl+Nada" } } } }"#;
+        assert!(serde_json::from_str::<Config>(action).unwrap().validate().is_err(), "a hold action is validated too");
     }
 
     #[test]

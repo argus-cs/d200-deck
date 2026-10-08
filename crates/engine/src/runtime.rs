@@ -30,7 +30,7 @@ use crate::rules::{
     active_rules, host_of, matching_tab, resolve, simulated_context, site_matches, Context, Simulation, Slot, Tabs,
     BROWSER,
 };
-use crate::config::{Screen, ScreenContent};
+use crate::config::{Screen, ScreenContent, ScreenHold};
 use crate::screen::{self as visor, NowPlaying, Timer, Usage, UsageSampler};
 
 /// Without traffic the device falls back to its screensaver; 1 s also keeps the clock exact.
@@ -44,11 +44,23 @@ const IDLE_TICK: Duration = Duration::from_millis(100);
 const SETTLE: Duration = Duration::from_millis(200);
 const WINDOW_INDEX: usize = KEY_COUNT - 1;
 const USAGE_POLL: Duration = Duration::from_secs(2);
-/// Holding the visor this long resets the timer instead of pausing it.
+/// Holding the visor this long runs its hold instead of a tap.
 const HOLD: Duration = Duration::from_millis(700);
+/// A second tap on the timer this soon after the first resets it.
+const DOUBLE_TAP: Duration = Duration::from_millis(450);
 
 /// Rendered key images by `Look::cache_key`.
 type IconCache = HashMap<String, Option<Vec<u8>>>;
+
+/// The visor's touch while it is down.
+#[derive(Clone, Copy)]
+enum VisorPress {
+    Up,
+    /// `holds`: holding this visor does something, so a long press is not a tap.
+    Down { since: Instant, holds: bool },
+    /// The hold already ran; the release does nothing.
+    Held,
+}
 
 pub enum Command {
     /// Paused, the device shows the default layout whatever is open.
@@ -291,7 +303,10 @@ struct State {
     /// What the visor shows, to draw it again only when it changes.
     screen_signature: String,
     screen_png: Option<Vec<u8>>,
-    screen_pressed_at: Option<Instant>,
+    visor_press: VisorPress,
+    /// How far each visor's hold cycle went, by rule name (None: the default visor).
+    screen_steps: HashMap<Option<String>, usize>,
+    last_timer_tap: Option<Instant>,
     device: bool,
     extension: bool,
     last_config: Instant,
@@ -350,7 +365,9 @@ impl State {
             timer: Timer::default(),
             screen_signature: String::new(),
             screen_png: None,
-            screen_pressed_at: None,
+            visor_press: VisorPress::Up,
+            screen_steps: HashMap::new(),
+            last_timer_tap: None,
             device: false,
             extension: false,
             last_config: Instant::now(),
@@ -422,25 +439,42 @@ impl State {
                         // A tap cycles the window mode on the device; put ours back right away.
                         self.keepalive(device)?;
                         last_keepalive = Instant::now();
-                        self.screen_pressed_at = Some(Instant::now());
-                    } else if let Some(at) = self.screen_pressed_at.take() {
-                        self.tap_screen(at.elapsed(), device)?;
+                        let holds = self.current_screen().0.holds();
+                        self.visor_press = VisorPress::Down { since: Instant::now(), holds };
+                    } else if let VisorPress::Down { .. } = std::mem::replace(&mut self.visor_press, VisorPress::Up) {
+                        self.tap_screen(device)?;
                     }
                 }
                 Some((Incoming::Button { index, pressed: true, .. }, _)) => self.press(index as usize, device)?,
                 _ => {}
             }
+            // The hold runs while the finger is still down, so it is felt right away.
+            if let VisorPress::Down { since, holds: true } = self.visor_press {
+                if since.elapsed() >= HOLD {
+                    self.visor_press = VisorPress::Held;
+                    self.hold_screen(device)?;
+                }
+            }
         }
     }
 
     /// The visor showing now, and the rule it comes from (the last active
-    /// rule with a visor of its own wins, like keys).
+    /// rule with a visor of its own wins, like keys). Its `content` is what
+    /// the hold cycle reached.
     fn current_screen(&self) -> (Screen, Option<usize>) {
-        self.active
+        let (mut screen, rule) = self
+            .active
             .iter()
             .rev()
             .find_map(|&i| self.config.rules[i].screen.clone().map(|s| (s, Some(i))))
-            .unwrap_or_else(|| (self.config.default_screen(), None))
+            .unwrap_or_else(|| (self.config.default_screen(), None));
+        let step = self.screen_steps.get(&self.screen_origin(rule)).copied().unwrap_or(0);
+        screen.content = screen.showing(step);
+        (screen, rule)
+    }
+
+    fn screen_origin(&self, rule: Option<usize>) -> Option<String> {
+        rule.map(|i| self.config.rules[i].name.clone())
     }
 
     /// Draws the visor again if what it shows changed; true when it did.
@@ -485,33 +519,60 @@ impl State {
         Ok(())
     }
 
-    /// A short tap or a hold on the visor: the timer's controls, or the visor's action.
-    fn tap_screen(&mut self, held: Duration, device: &D200) -> Result<()> {
+    /// A tap on the visor: the timer's controls (two quick taps reset it), or the visor's action.
+    fn tap_screen(&mut self, device: &D200) -> Result<()> {
         let (screen, rule) = self.current_screen();
-        let origin = rule.map(|i| self.config.rules[i].name.clone());
-        let (label, action) = match screen.content {
-            ScreenContent::Timer { .. } => {
-                let label = if held >= HOLD {
+        if let ScreenContent::Timer { .. } = screen.content {
+            let label = match self.last_timer_tap.take() {
+                Some(at) if at.elapsed() <= DOUBLE_TAP => {
                     self.timer.reset();
                     "Timer zerado"
-                } else {
+                }
+                _ => {
                     self.timer.toggle();
+                    self.last_timer_tap = Some(Instant::now());
                     if self.timer.running() { "Timer rodando" } else { "Timer pausado" }
-                };
-                info!("visor: {}", label.to_lowercase());
+                }
+            };
+            info!("visor: {}", label.to_lowercase());
+            self.refresh_screen(Some(device))?;
+            self.report_screen(label.to_string(), rule, None);
+            return Ok(());
+        }
+        // Older configs put the visor's action on key 14.
+        let fallback = || self.resolved.get(&(WINDOW_INDEX as u8 + 1)).and_then(|s| s.key.action.clone());
+        let action = screen.action.clone().or_else(fallback);
+        self.report_screen("Visor".to_string(), rule, action);
+        Ok(())
+    }
+
+    /// Holding the visor: its own action, or the next content of its cycle.
+    fn hold_screen(&mut self, device: &D200) -> Result<()> {
+        let (screen, rule) = self.current_screen();
+        match screen.hold {
+            Some(ScreenHold::Cycle { contents }) if !contents.is_empty() => {
+                let origin = self.screen_origin(rule);
+                let step = self.screen_steps.entry(origin).or_insert(0);
+                *step = (*step + 1) % (contents.len() + 1);
+                let name = self.current_screen().0.content.name();
+                info!("visor: {name}");
                 self.refresh_screen(Some(device))?;
-                (label.to_string(), None)
+                self.report_screen(format!("Visor: {name}"), rule, None);
             }
-            _ => {
-                // Older configs put the visor's action on key 14.
-                let fallback = self.resolved.get(&(WINDOW_INDEX as u8 + 1)).and_then(|s| s.key.action.clone());
-                ("Visor".to_string(), screen.action.clone().or(fallback))
+            Some(ScreenHold::Action { action: Some(action) }) => {
+                self.report_screen("Visor (segurar)".to_string(), rule, Some(action));
             }
-        };
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Tells the app what the visor did, then runs the action, if any.
+    fn report_screen(&self, label: String, rule: Option<usize>, action: Option<Action>) {
         let activity = Activity {
             number: WINDOW_INDEX as u8 + 1,
             label,
-            rule: origin,
+            rule: self.screen_origin(rule),
             action: action.as_ref().map(actions::describe),
             error: None,
         };
@@ -521,7 +582,6 @@ impl State {
             let sink = Arc::clone(&self.on_activity);
             actions::run(action, None, move |error| sink(&Activity { error: Some(error), ..activity }));
         }
-        Ok(())
     }
 
     /// Everything except reading keys and the keep-alive, with or without a device.

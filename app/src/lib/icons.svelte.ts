@@ -39,6 +39,7 @@ export function keyUrl(face: KeyFace, label: LabelStyle): string | null {
 
 /** `undefined` while drawing, `null` when the device draws this visor itself. */
 export function screenUrl(screen: Screen): string | null | undefined {
-  const { action: _action, ...look } = screen;
-  return cached(`screen|${JSON.stringify(look)}`, () => invoke<string | null>('render_screen', { screen }));
+  // What a tap or a hold does doesn't change the picture.
+  const { action: _action, hold: _hold, ...look } = screen;
+  return cached(`screen|${JSON.stringify(look)}`, () => invoke<string | null>('render_screen', { screen: look }));
 }

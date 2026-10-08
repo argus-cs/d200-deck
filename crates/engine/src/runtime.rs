@@ -1,6 +1,7 @@
 //! The device loop: connects to the D200, keeps it awake, follows the app in
-//! front and the running apps to switch rule layers, runs actions on key
-//! presses, applies config edits live and reconnects when the cable comes out.
+//! front, the running apps and Edge's tabs to switch rule layers, runs
+//! actions on key presses, applies config edits live and reconnects when the
+//! cable comes out.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,11 +18,12 @@ use log::{info, warn};
 use serde_json::json;
 use sysinfo::System;
 
-use crate::actions;
+use crate::actions::{self, Front};
+use crate::browser::{self, Bridge};
 use crate::config::{Config, Key, RuleMode, Window};
 use crate::context::{watch_foreground, ProcessList};
 use crate::icons;
-use crate::rules::{active_rules, resolve, Context, Slot};
+use crate::rules::{active_rules, matching_tab, resolve, Context, Slot, Tabs, BROWSER};
 
 /// Without traffic the device falls back to its screensaver; 1 s also keeps the clock exact.
 const KEEPALIVE: Duration = Duration::from_secs(1);
@@ -38,11 +40,14 @@ type IconCache = HashMap<(Option<String>, String), Option<Vec<u8>>>;
 pub fn run(config_path: PathBuf) -> Result<()> {
     let config = Config::load_or_create(&config_path)?;
     info!("usando {}", config_path.display());
+    let (browser, tabs) = browser::start();
     let mut state = State {
         modified: modified(&config_path),
         config_path,
         config,
         foreground: watch_foreground(),
+        browser,
+        tabs,
         processes: ProcessList::default(),
         context: Context::default(),
         active: Vec::new(),
@@ -79,6 +84,8 @@ struct State {
     config: Config,
     modified: Option<SystemTime>,
     foreground: Receiver<Option<String>>,
+    browser: Bridge,
+    tabs: Receiver<Tabs>,
     processes: ProcessList,
     context: Context,
     /// The rules on the device now, in layering order.
@@ -112,7 +119,7 @@ impl State {
                 self.poll_processes();
                 last_processes = Instant::now();
             }
-            self.drain_foreground();
+            self.drain_events();
             self.settle_rules(device)?;
             if let Some((Incoming::Button { index, pressed: true, .. }, _)) = device.read(100)? {
                 self.press(index as usize);
@@ -128,7 +135,7 @@ impl State {
     fn connect(&mut self, device: &D200) -> Result<()> {
         device.set_brightness(self.config.brightness)?;
         device.set_label_style(&label_style(&self.config))?;
-        self.drain_foreground();
+        self.drain_events();
         self.poll_processes();
         self.active = active_rules(&self.config, &self.context);
         self.pending = None;
@@ -139,9 +146,13 @@ impl State {
         self.keepalive(device)
     }
 
-    fn drain_foreground(&mut self) {
+    /// Latest app in front and latest Edge tabs.
+    fn drain_events(&mut self) {
         while let Ok(focused) = self.foreground.try_recv() {
             self.context.focused = focused;
+        }
+        while let Ok(tabs) = self.tabs.try_recv() {
+            self.context.tabs = tabs;
         }
     }
 
@@ -153,7 +164,7 @@ impl State {
             .rules
             .iter()
             .filter(|r| r.enabled && r.mode == RuleMode::Open)
-            .map(|r| r.process())
+            .filter_map(|r| r.process())
             .collect();
         self.context.running = if watched.is_empty() {
             HashSet::new()
@@ -278,10 +289,28 @@ impl State {
         };
         let rule = slot.rule.map(|i| &self.config.rules[i]);
         let origin = rule.map_or_else(|| "padrão".to_string(), |r| r.name.clone());
-        let front = rule.filter(|_| slot.key.front).map(|r| r.process());
-        let to_front = front.as_ref().map(|p| format!(" em {p}")).unwrap_or_default();
-        info!("tecla {number} ({origin}): {}{to_front}", actions::describe(&action));
+        let front = rule.filter(|_| slot.key.front).and_then(|r| self.front_for(r));
+        let place = match &front {
+            Some(Front::App(process)) => format!(" em {process}"),
+            Some(Front::Tab { tab, .. }) => format!(" na aba {tab} do Edge"),
+            None => String::new(),
+        };
+        info!("tecla {number} ({origin}): {}{place}", actions::describe(&action));
         actions::run(action, front);
+    }
+
+    fn front_for(&self, rule: &crate::config::Rule) -> Option<Front> {
+        if let Some(process) = rule.process() {
+            return Some(Front::App(process));
+        }
+        let Some(tab) = matching_tab(rule, &self.context) else {
+            warn!("{}: nenhuma aba aberta do site para receber a ação", rule.name);
+            return None;
+        };
+        // Edge in front on another tab: select that tab again afterwards.
+        let edge_in_front = self.context.focused.as_deref() == Some(BROWSER);
+        let back_to = self.context.tabs.active.as_ref().filter(|t| edge_in_front && t.id != tab).map(|t| t.id);
+        Some(Front::Tab { bridge: self.browser.clone(), tab, back_to })
     }
 }
 

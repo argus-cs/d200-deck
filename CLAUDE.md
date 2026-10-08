@@ -14,6 +14,8 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - `crates/engine/` — motor reaproveitado pelo app Tauri: `config.rs` (JSON em `%APPDATA%\D200Deck\config.json`, teclas numeradas de 1 a 14), `icons.rs` (ícones de traço do protótipo via resvg, ou PNG do usuário), `actions.rs` (atalho, abrir, comando, texto, mídia), `runtime.rs` (conexão, keep-alive de 1 s, recarga da config enviando só as teclas mudadas, reconexão).
 - `crates/engine/src/bin/deckd.rs` — o app sem interface.
 - `crates/engine/src/rules.rs` — quais regras valem e o que cada tecla mostra (lógica pura, testável). `context.rs` — o lado Windows: janela da frente por evento (`SetWinEventHook`), processos a cada 1 s (só os que regras "aberto" observam) e trazer um app para a frente.
+- `crates/engine/src/browser.rs` — WebSocket em `127.0.0.1:47820` para a extensão; recusa qualquer Origin que não seja de extensão (`chrome-extension://`), então nenhuma página da web consegue falar com ele.
+- `extension-edge/` — extensão Manifest V3 (permissões `tabs` e `alarms`), carregada em `edge://extensions` → Modo de desenvolvedor → Carregar sem pacote. Depois de editar, clicar em recarregar na extensão. A porta está fixa nos dois lados (`PORT`).
 
 ## Regras de app (Fase 2)
 - Formato: `{ "name", "when": { "process": "Discord.exe" }, "mode": "open" | "focus", "enabled", "keys": { ... } }`. O nome do processo é comparado sem diferenciar maiúsculas, e `.exe` é opcional.
@@ -21,6 +23,13 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - As regras ativas precisam ficar iguais por 200 ms antes de as teclas mudarem (Alt+Tab não pisca).
 - `"front": true` numa tecla de regra traz o app para a frente (`AttachThreadInput`; um toque de Alt é o plano B), executa a ação e devolve o foco.
 - Limitação conhecida: apps UWP (Calculadora, Configurações) aparecem como `ApplicationFrameHost.exe` na janela da frente.
+
+## Regras de site (Fase 3)
+- `"when": { "site": "youtube.com" }` casa o domínio e os subdomínios; com `/` ou `*` vira curinga sobre "domínio/caminho" (`github.com/*/pulls`), valendo também para o que estiver abaixo. Esquema, `www.`, porta, query e fragmento são ignorados.
+- Foco = Edge na frente **e** o site na aba selecionada da última janela do Edge usada. Aberto = qualquer aba do site.
+- `front` numa tecla de site: a extensão seleciona a aba e foca a janela dela, o motor traz o Edge para a frente e executa a ação. Depois volta para a aba anterior (se o Edge já estava na frente) ou devolve o foco ao app anterior.
+- Abas InPrivate não são vistas (a extensão não roda nelas, a menos que seja liberada).
+- Quando a extensão se desconecta, as regras de site deixam de valer.
 
 ## Comandos
 O Rust fica em `%USERPROFILE%\.cargo\bin`, que pode não estar no PATH do shell.

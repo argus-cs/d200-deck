@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 
+use crate::browser::Bridge;
 use crate::config::{Action, MediaKey};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -14,39 +15,59 @@ pub struct KeyStroke {
     pub extended: bool,
 }
 
+/// Where an action must happen when its key has `"front": true`.
+pub enum Front {
+    /// A lowercase exe name.
+    App(String),
+    /// An Edge tab, and the tab to select again afterwards when Edge was
+    /// already in front on another one.
+    Tab { bridge: Bridge, tab: i64, back_to: Option<i64> },
+}
+
 /// Runs the action on its own thread so a slow app launch never delays the
-/// device loop. With `front` (a lowercase exe name), that app is brought to
-/// the front for the action and the focus goes back afterwards.
-pub fn run(action: Action, front: Option<String>) {
+/// device loop. With `front`, the app or tab is brought forward for the
+/// action and the focus goes back afterwards.
+pub fn run(action: Action, front: Option<Front>) {
     std::thread::spawn(move || {
-        if let Err(e) = run_now(&action, front.as_deref()) {
+        if let Err(e) = run_now(&action, front.as_ref()) {
             log::warn!("ação falhou: {e:#}");
         }
     });
 }
 
 #[cfg(windows)]
-fn run_now(action: &Action, front: Option<&str>) -> Result<()> {
+fn run_now(action: &Action, front: Option<&Front>) -> Result<()> {
     use std::time::Duration;
 
+    use crate::context::{bring_to_front, give_back};
+
     let previous = match front {
-        Some(process) => crate::context::bring_to_front(process)?,
         None => None,
+        Some(Front::App(process)) => bring_to_front(process)?,
+        Some(Front::Tab { bridge, tab, .. }) => {
+            bridge.activate(*tab)?;
+            bring_to_front(crate::rules::BROWSER)?
+        }
     };
-    if previous.is_some() {
-        // Let the app take the keyboard focus before the shortcut arrives.
-        std::thread::sleep(Duration::from_millis(80));
+    if front.is_some() {
+        // Let the app or page take the keyboard focus before the shortcut arrives.
+        std::thread::sleep(Duration::from_millis(120));
     }
     let result = execute(action);
-    if let Some(window) = previous {
+    if front.is_some() {
         std::thread::sleep(Duration::from_millis(120));
-        crate::context::give_back(window);
+    }
+    if let Some(Front::Tab { bridge, back_to: Some(tab), .. }) = front {
+        let _ = bridge.activate(*tab);
+    }
+    if let Some(window) = previous {
+        give_back(window);
     }
     result
 }
 
 #[cfg(not(windows))]
-fn run_now(action: &Action, _front: Option<&str>) -> Result<()> {
+fn run_now(action: &Action, _front: Option<&Front>) -> Result<()> {
     execute(action)
 }
 

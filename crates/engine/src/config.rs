@@ -37,28 +37,47 @@ pub struct Rule {
 #[serde(rename_all = "lowercase")]
 pub enum When {
     Process(String),
+    /// A site in Edge: a domain ("youtube.com", subdomains included) or an
+    /// address with `*` wildcards ("github.com/*/pulls").
+    Site(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleMode {
-    /// While the app is running, even minimized.
+    /// While the app is running (even minimized) or the site has a tab open.
     Open,
-    /// Only while the app's window is in front.
+    /// Only while the app's window, or the site's tab in Edge, is in front.
     Focus,
 }
 
 impl Rule {
     /// The process to match: lowercase, with ".exe" added when missing.
-    pub fn process(&self) -> String {
-        let When::Process(name) = &self.when;
-        normalize_process(name)
+    pub fn process(&self) -> Option<String> {
+        match &self.when {
+            When::Process(name) => Some(normalize_process(name)),
+            When::Site(_) => None,
+        }
+    }
+
+    pub fn site(&self) -> Option<String> {
+        match &self.when {
+            When::Site(site) => Some(normalize_site(site)),
+            When::Process(_) => None,
+        }
     }
 }
 
 pub fn normalize_process(name: &str) -> String {
     let lower = name.trim().to_ascii_lowercase();
     if lower.ends_with(".exe") { lower } else { format!("{lower}.exe") }
+}
+
+/// "https://www.YouTube.com/" → "youtube.com".
+pub fn normalize_site(site: &str) -> String {
+    let lower = site.trim().to_ascii_lowercase();
+    let bare = lower.strip_prefix("https://").or_else(|| lower.strip_prefix("http://")).unwrap_or(&lower);
+    bare.strip_prefix("www.").unwrap_or(bare).trim_end_matches('/').to_string()
 }
 
 fn enabled_by_default() -> bool {
@@ -209,9 +228,10 @@ impl Config {
         }
         for (i, rule) in self.rules.iter().enumerate() {
             let name = if rule.name.trim().is_empty() { format!("regra {}", i + 1) } else { rule.name.clone() };
-            let When::Process(process) = &rule.when;
-            if process.trim().is_empty() {
-                bail!("{name}: when.process está vazio");
+            match &rule.when {
+                When::Process(process) if process.trim().is_empty() => bail!("{name}: when.process está vazio"),
+                When::Site(site) if normalize_site(site).is_empty() => bail!("{name}: when.site está vazio"),
+                _ => {}
             }
             for (n, key) in &rule.keys {
                 validate_key(*n, key).with_context(|| name.clone())?;
@@ -285,11 +305,20 @@ mod tests {
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
         config.validate().unwrap();
-        assert_eq!(config.rules[0].process(), "discord.exe");
+        assert_eq!(config.rules[0].process().as_deref(), Some("discord.exe"));
         assert_eq!(config.rules[0].mode, RuleMode::Open);
         assert!(config.rules[0].enabled && config.rules[0].keys[&1].front);
         assert!(!config.rules[1].enabled);
         assert!(config.rules[1].keys.is_empty());
+    }
+
+    #[test]
+    fn parses_site_rules() {
+        let json = r#"{ "rules": [ { "name": "YT", "when": { "site": "https://www.YouTube.com/" }, "mode": "focus" } ] }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.rules[0].site().as_deref(), Some("youtube.com"));
+        assert_eq!(config.rules[0].process(), None);
     }
 
     #[test]
@@ -301,6 +330,7 @@ mod tests {
             r#"{ "keys": { "1": { "icon": "naoexiste" } } }"#,
             r#"{ "keys": { "1": { "action": { "type": "hotkey", "keys": "Ctrl+Nada" } } } }"#,
             r#"{ "rules": [ { "name": "x", "when": { "process": " " }, "mode": "open" } ] }"#,
+            r#"{ "rules": [ { "name": "x", "when": { "site": "https://" }, "mode": "open" } ] }"#,
             r#"{ "rules": [ { "name": "x", "when": { "process": "a.exe" }, "mode": "open", "keys": { "0": {} } } ] }"#,
         ];
         for json in bad {

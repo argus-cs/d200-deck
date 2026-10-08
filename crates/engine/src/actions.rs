@@ -14,13 +14,40 @@ pub struct KeyStroke {
     pub extended: bool,
 }
 
-/// Runs the action on its own thread so a slow app launch never delays the device loop.
-pub fn run(action: Action) {
+/// Runs the action on its own thread so a slow app launch never delays the
+/// device loop. With `front` (a lowercase exe name), that app is brought to
+/// the front for the action and the focus goes back afterwards.
+pub fn run(action: Action, front: Option<String>) {
     std::thread::spawn(move || {
-        if let Err(e) = execute(&action) {
+        if let Err(e) = run_now(&action, front.as_deref()) {
             log::warn!("ação falhou: {e:#}");
         }
     });
+}
+
+#[cfg(windows)]
+fn run_now(action: &Action, front: Option<&str>) -> Result<()> {
+    use std::time::Duration;
+
+    let previous = match front {
+        Some(process) => crate::context::bring_to_front(process)?,
+        None => None,
+    };
+    if previous.is_some() {
+        // Let the app take the keyboard focus before the shortcut arrives.
+        std::thread::sleep(Duration::from_millis(80));
+    }
+    let result = execute(action);
+    if let Some(window) = previous {
+        std::thread::sleep(Duration::from_millis(120));
+        crate::context::give_back(window);
+    }
+    result
+}
+
+#[cfg(not(windows))]
+fn run_now(action: &Action, _front: Option<&str>) -> Result<()> {
+    execute(action)
 }
 
 pub fn describe(action: &Action) -> String {

@@ -99,7 +99,7 @@ mod tests {
     use super::*;
 
     fn key(icon: Option<&str>) -> Key {
-        Key { label: String::new(), icon: icon.map(Into::into), color: "#24262B".into(), action: None }
+        Key { label: String::new(), icon: icon.map(Into::into), color: "#24262B".into(), action: None, front: false }
     }
 
     #[test]

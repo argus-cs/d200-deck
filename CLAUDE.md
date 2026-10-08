@@ -13,6 +13,14 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - `crates/d200/src/bin/probe.rs` — ferramenta de validação da Fase 0.
 - `crates/engine/` — motor reaproveitado pelo app Tauri: `config.rs` (JSON em `%APPDATA%\D200Deck\config.json`, teclas numeradas de 1 a 14), `icons.rs` (ícones de traço do protótipo via resvg, ou PNG do usuário), `actions.rs` (atalho, abrir, comando, texto, mídia), `runtime.rs` (conexão, keep-alive de 1 s, recarga da config enviando só as teclas mudadas, reconexão).
 - `crates/engine/src/bin/deckd.rs` — o app sem interface.
+- `crates/engine/src/rules.rs` — quais regras valem e o que cada tecla mostra (lógica pura, testável). `context.rs` — o lado Windows: janela da frente por evento (`SetWinEventHook`), processos a cada 1 s (só os que regras "aberto" observam) e trazer um app para a frente.
+
+## Regras de app (Fase 2)
+- Formato: `{ "name", "when": { "process": "Discord.exe" }, "mode": "open" | "focus", "enabled", "keys": { ... } }`. O nome do processo é comparado sem diferenciar maiúsculas, e `.exe` é opcional.
+- Camadas: padrão → regras "open" → regras "focus", cada grupo na ordem da lista. Foco ganha de aberto; no mesmo modo, a regra mais abaixo ganha.
+- As regras ativas precisam ficar iguais por 200 ms antes de as teclas mudarem (Alt+Tab não pisca).
+- `"front": true` numa tecla de regra traz o app para a frente (`AttachThreadInput`; um toque de Alt é o plano B), executa a ação e devolve o foco.
+- Limitação conhecida: apps UWP (Calculadora, Configurações) aparecem como `ApplicationFrameHost.exe` na janela da frente.
 
 ## Comandos
 O Rust fica em `%USERPROFILE%\.cargo\bin`, que pode não estar no PATH do shell.

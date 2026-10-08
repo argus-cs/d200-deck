@@ -17,6 +17,52 @@ pub struct Config {
     pub window: Window,
     pub label: LabelStyle,
     pub keys: BTreeMap<u8, Key>,
+    /// Layers over `keys`; see `rules::active_rules` for the order.
+    pub rules: Vec<Rule>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Rule {
+    pub name: String,
+    pub when: When,
+    pub mode: RuleMode,
+    #[serde(default = "enabled_by_default")]
+    pub enabled: bool,
+    /// Only the keys this rule replaces; the others keep the default layout.
+    #[serde(default)]
+    pub keys: BTreeMap<u8, Key>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum When {
+    Process(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleMode {
+    /// While the app is running, even minimized.
+    Open,
+    /// Only while the app's window is in front.
+    Focus,
+}
+
+impl Rule {
+    /// The process to match: lowercase, with ".exe" added when missing.
+    pub fn process(&self) -> String {
+        let When::Process(name) = &self.when;
+        normalize_process(name)
+    }
+}
+
+pub fn normalize_process(name: &str) -> String {
+    let lower = name.trim().to_ascii_lowercase();
+    if lower.ends_with(".exe") { lower } else { format!("{lower}.exe") }
+}
+
+fn enabled_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +93,10 @@ pub struct Key {
     pub color: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<Action>,
+    /// On a rule's key: bring the rule's app to the front for the action,
+    /// then give the focus back. Shortcuts only reach the window in front.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub front: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -108,10 +158,11 @@ impl Default for Config {
         let keys = entries
             .into_iter()
             .map(|(n, icon, label, action)| {
-                (n, Key { label: label.into(), icon: Some(icon.into()), color: default_key_color(), action: Some(action) })
+                let key = Key { label: label.into(), icon: Some(icon.into()), color: default_key_color(), action: Some(action), front: false };
+                (n, key)
             })
             .collect();
-        Self { brightness: 80, window: Window::Clock, label: LabelStyle::default(), keys }
+        Self { brightness: 80, window: Window::Clock, label: LabelStyle::default(), keys, rules: Vec::new() }
     }
 }
 
@@ -154,23 +205,38 @@ impl Config {
             bail!("label.color precisa ser hex sem # (ex.: FFFFFF)");
         }
         for (n, key) in &self.keys {
-            if !KEY_NUMBERS.contains(n) {
-                bail!("tecla {n} não existe (use 1 a 14)");
+            validate_key(*n, key)?;
+        }
+        for (i, rule) in self.rules.iter().enumerate() {
+            let name = if rule.name.trim().is_empty() { format!("regra {}", i + 1) } else { rule.name.clone() };
+            let When::Process(process) = &rule.when;
+            if process.trim().is_empty() {
+                bail!("{name}: when.process está vazio");
             }
-            if !is_hex_color(&key.color, true) {
-                bail!("tecla {n}: color precisa ser #RRGGBB (está {:?})", key.color);
-            }
-            if let Some(icon) = &key.icon {
-                if icon.is_empty() || (!icons::is_glyph(icon) && !icon.to_ascii_lowercase().ends_with(".png")) {
-                    bail!("tecla {n}: ícone {icon:?} não é um ícone embutido nem um arquivo .png");
-                }
-            }
-            if let Some(Action::Hotkey { keys }) = &key.action {
-                parse_hotkey(keys).with_context(|| format!("tecla {n}"))?;
+            for (n, key) in &rule.keys {
+                validate_key(*n, key).with_context(|| name.clone())?;
             }
         }
         Ok(())
     }
+}
+
+fn validate_key(n: u8, key: &Key) -> Result<()> {
+    if !KEY_NUMBERS.contains(&n) {
+        bail!("tecla {n} não existe (use 1 a 14)");
+    }
+    if !is_hex_color(&key.color, true) {
+        bail!("tecla {n}: color precisa ser #RRGGBB (está {:?})", key.color);
+    }
+    if let Some(icon) = &key.icon {
+        if icon.is_empty() || (!icons::is_glyph(icon) && !icon.to_ascii_lowercase().ends_with(".png")) {
+            bail!("tecla {n}: ícone {icon:?} não é um ícone embutido nem um arquivo .png");
+        }
+    }
+    if let Some(Action::Hotkey { keys }) = &key.action {
+        parse_hotkey(keys).with_context(|| format!("tecla {n}"))?;
+    }
+    Ok(())
 }
 
 fn is_hex_color(s: &str, with_hash: bool) -> bool {
@@ -209,6 +275,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_rules() {
+        let json = r#"{
+            "rules": [
+                { "name": "Discord", "when": { "process": "Discord" }, "mode": "open",
+                  "keys": { "1": { "label": "Mute", "front": true, "action": { "type": "hotkey", "keys": "Ctrl+Shift+M" } } } },
+                { "name": "Photoshop", "when": { "process": "Photoshop.exe" }, "mode": "focus", "enabled": false }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.rules[0].process(), "discord.exe");
+        assert_eq!(config.rules[0].mode, RuleMode::Open);
+        assert!(config.rules[0].enabled && config.rules[0].keys[&1].front);
+        assert!(!config.rules[1].enabled);
+        assert!(config.rules[1].keys.is_empty());
+    }
+
+    #[test]
     fn rejects_bad_values() {
         let bad = [
             r#"{ "keys": { "15": { "label": "x" } } }"#,
@@ -216,6 +300,8 @@ mod tests {
             r#"{ "keys": { "1": { "color": "red" } } }"#,
             r#"{ "keys": { "1": { "icon": "naoexiste" } } }"#,
             r#"{ "keys": { "1": { "action": { "type": "hotkey", "keys": "Ctrl+Nada" } } } }"#,
+            r#"{ "rules": [ { "name": "x", "when": { "process": " " }, "mode": "open" } ] }"#,
+            r#"{ "rules": [ { "name": "x", "when": { "process": "a.exe" }, "mode": "open", "keys": { "0": {} } } ] }"#,
         ];
         for json in bad {
             let config: Config = serde_json::from_str(json).unwrap();

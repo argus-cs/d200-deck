@@ -3,5 +3,7 @@
 
 pub mod actions;
 pub mod config;
+pub mod context;
 pub mod icons;
+pub mod rules;
 pub mod runtime;

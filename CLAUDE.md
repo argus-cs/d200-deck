@@ -27,6 +27,20 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - `"front": true` numa tecla de regra traz o app para a frente (`AttachThreadInput`; um toque de Alt é o plano B), executa a ação e devolve o foco.
 - Limitação conhecida: apps UWP (Calculadora, Configurações) aparecem como `ApplicationFrameHost.exe` na janela da frente.
 
+## Teclas e visor (depois da Fase 5)
+- **O texto das teclas é desenhado pelo app dentro da imagem** (`icons::render_key`, Segoe UI); o rótulo do aparelho fica desligado (`ShowTitle: false`). Isso permite cor por tecla: `color` (fundo), `icon_color`, `text_color`, `border`. Tamanho e cor padrão do texto vêm de `label` (tamanho × 2,4 px).
+- Tecla de dois estados: `toggle` (um `KeyFace`) alterna a cada toque; o estado vive só na memória do motor, por (nome da regra, número).
+- Ação "abrir" de um `.exe` escurece a tecla enquanto o app não roda (`Action::watched_process`; `watch: false` desliga). Explorer não conta; `wt.exe` vira `windowsterminal.exe`.
+- Ícones de app (`icons::app_icon`, via `IShellItemImageFactory`) e de site (favicon do cache do Edge pela extensão, permissão `favicon`) são salvos como PNG em `%APPDATA%\D200Deck\icons`.
+- Visor (`screen.rs`): `config.screen` e `rule.screen`; conteúdos desenhados pelo aparelho (`device_clock`, `device_stats`) ou pelo app (relógio, uso do PC com GPU via PDH, os dois juntos, agora tocando com capa via `GlobalSystemMediaTransportControlsSessionManager`, cronômetro, imagem, texto). Redesenha só quando a assinatura muda. O campo antigo `window` ainda é lido.
+- `cargo run -p deck-engine --bin try-screen -- <pasta>` desenha exemplos de visor e de teclas em PNG para conferir.
+
+## Interface (depois da Fase 5)
+- Janela sem moldura (`decorations(false)`), barra de título própria com `data-tauri-drag-region`; posição/tamanho lembrados por `tauri-plugin-window-state`.
+- `disable_drag_drop_handler()` é necessário para o arrastar e soltar do HTML funcionar no Windows.
+- Tema claro/escuro por `prefers-color-scheme` (tokens em `app.css`); o D200 virtual é sempre escuro.
+- Desfazer/refazer no `App.svelte` (pilha de snapshots da config, agrupando edições a menos de 800 ms).
+
 ## Regras de site (Fase 3)
 - `"when": { "site": "youtube.com" }` casa o domínio e os subdomínios; com `/` ou `*` vira curinga sobre "domínio/caminho" (`github.com/*/pulls`), valendo também para o que estiver abaixo. Esquema, `www.`, porta, query e fragmento são ignorados.
 - Foco = Edge na frente **e** o site na aba selecionada da última janela do Edge usada. Aberto = qualquer aba do site.
@@ -64,6 +78,8 @@ Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 - Sem keep-alive (`0x0006`), o aparelho entra em proteção de tela. Ao voltar o keep-alive ele acorda com o layout que já tinha: não é preciso reenviar o layout.
 - A proteção de tela vem da falta do PC, não de inatividade: com keep-alive a cada 5 s o aparelho ficou acordado mais de 4 minutos sem nenhum toque.
 - Dois processos podem abrir o aparelho ao mesmo tempo no Windows.
+- **O aparelho guarda as imagens em cache pelo nome do arquivo no zip.** Nome repetido (mesmo entre execuções) mostra a imagem antiga ou nada. Por isso os nomes levam um contador que começa no relógio (`device.rs::next_nonce`).
+- O visor estica a imagem que recebe para o painel; a proporção medida é **458×196** (`screen::WIDTH/HEIGHT`). `probe screen-test <w> <h> --window image` manda um padrão de teste.
 
 Referências: redphx/strmdck (MIT) e glmagalhaes.mail/rs-ulanzi-d-200-linux (GitLab).
 

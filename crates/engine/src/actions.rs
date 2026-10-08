@@ -26,11 +26,12 @@ pub enum Front {
 
 /// Runs the action on its own thread so a slow app launch never delays the
 /// device loop. With `front`, the app or tab is brought forward for the
-/// action and the focus goes back afterwards.
-pub fn run(action: Action, front: Option<Front>) {
+/// action and the focus goes back afterwards. `on_error` hears why it failed.
+pub fn run(action: Action, front: Option<Front>, on_error: impl FnOnce(String) + Send + 'static) {
     std::thread::spawn(move || {
         if let Err(e) = run_now(&action, front.as_ref()) {
             log::warn!("ação falhou: {e:#}");
+            on_error(format!("{e:#}"));
         }
     });
 }
@@ -185,7 +186,7 @@ pub fn execute(action: &Action) -> Result<()> {
         Action::Hotkey { keys } => win::press(&parse_hotkey(keys)?),
         Action::Media { key } => win::press(&[KeyStroke { vk: media_vk(*key), extended: false }]),
         Action::Text { text } => win::type_text(text),
-        Action::Open { target, args } => win::open(target, args.as_deref()),
+        Action::Open { target, args, .. } => win::open(target, args.as_deref()),
         Action::Command { command } => win::command(command),
     }
 }

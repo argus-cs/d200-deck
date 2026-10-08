@@ -1,13 +1,17 @@
 <script lang="ts">
   import EditDeck from './EditDeck.svelte';
   import KeyEditor from './KeyEditor.svelte';
-  import { ruleTarget, type Config, type Mode } from './types';
+  import ScreenEditor from './ScreenEditor.svelte';
+  import { defaultScreen, ruleTarget, type Config, type EdgePage, type Glyph, type Key, type Mode } from './types';
 
   let {
     config = $bindable(),
     index,
     active,
     glyphs,
+    edgePages,
+    clipboard,
+    oncopy,
     onmoved,
     ondeleted,
   }: {
@@ -15,7 +19,11 @@
     /** The rule being edited; null edits the default layout. */
     index: number | null;
     active: boolean;
-    glyphs: string[];
+    glyphs: Glyph[];
+    edgePages: EdgePage[];
+    clipboard: Key | null;
+    oncopy: (key: Key) => void;
+    /** The rule now sits at another index (moved or duplicated). */
     onmoved: (to: number) => void;
     ondeleted: () => void;
   } = $props();
@@ -24,6 +32,7 @@
   let confirmDelete = $state(false);
 
   const rule = $derived(index === null ? null : config.rules[index]);
+  const layer = $derived(rule ? rule.keys : config.keys);
   const target = $derived(rule ? ruleTarget(rule) : null);
   const explain = $derived.by(() => {
     if (!rule || !target) return '';
@@ -38,6 +47,7 @@
       : `Vale só com o Edge na frente e uma aba de ${t} selecionada.`;
   });
   const overrides = $derived(rule ? Object.keys(rule.keys).length : 0);
+  const baseScreen = $derived(defaultScreen(config));
 
   function setTarget(value: string) {
     if (!rule || !target) return;
@@ -57,15 +67,53 @@
     onmoved(to);
   }
 
+  function duplicate() {
+    if (index === null || !rule) return;
+    config.rules.splice(index + 1, 0, { ...$state.snapshot(rule), name: `${rule.name} (cópia)` });
+    onmoved(index + 1);
+  }
+
   function remove() {
     if (index === null) return;
     config.rules.splice(index, 1);
     ondeleted();
   }
+
+  /** Swaps two keys of this layer; an empty spot moves too. The visor is not a key. */
+  function swap(from: number, to: number) {
+    if (from === 14 || to === 14) return;
+    const a = layer[from] ? $state.snapshot(layer[from]) : undefined;
+    const b = layer[to] ? $state.snapshot(layer[to]) : undefined;
+    if (b) layer[from] = b;
+    else delete layer[from];
+    if (a) layer[to] = a;
+    else delete layer[to];
+    selected = to;
+  }
+
+  function paste() {
+    if (clipboard) layer[selected] = { ...structuredClone(clipboard), front: rule ? (clipboard.front ?? false) : false };
+  }
+
+  // Ctrl+C / Ctrl+V act on the selected key, except while typing in a field.
+  function onKey(event: KeyboardEvent) {
+    if (!event.ctrlKey || event.altKey || event.shiftKey || selected === 14) return;
+    if ((event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]')) return;
+    const letter = event.key.toLowerCase();
+    if (letter === 'c' && layer[selected]) {
+      event.preventDefault();
+      oncopy($state.snapshot(layer[selected]));
+    } else if (letter === 'v' && clipboard) {
+      event.preventDefault();
+      paste();
+    }
+  }
 </script>
 
+<svelte:window onkeydown={onKey} />
+
 <div class="layout">
-  <main>
+  <main class="scroll">
     {#if rule && target && index !== null}
       <div class="rule-head">
         <div class="title-row">
@@ -92,16 +140,26 @@
           <span class="spacer"></span>
           <button type="button" class="secondary" disabled={index === 0} onclick={() => move(-1)}>Subir</button>
           <button type="button" class="secondary" disabled={index === config.rules.length - 1} onclick={() => move(1)}>Descer</button>
+          <button type="button" class="secondary" onclick={duplicate}>Duplicar</button>
           {#if confirmDelete}
             <button type="button" class="danger" onclick={remove}>Excluir de vez</button>
             <button type="button" class="secondary" onclick={() => (confirmDelete = false)}>Cancelar</button>
           {:else}
-            <button type="button" class="secondary" onclick={() => (confirmDelete = true)}>Excluir regra</button>
+            <button type="button" class="secondary" onclick={() => (confirmDelete = true)}>Excluir</button>
           {/if}
         </div>
-        <p class="muted small">A ordem decide as disputas entre regras do mesmo modo: a de baixo vence.</p>
+        <p class="muted small">A ordem decide as disputas entre regras do mesmo modo: a de baixo vence. Dá para arrastar as regras na barra lateral.</p>
       </div>
-      <EditDeck keys={rule.keys} inherited={config.keys} {selected} onselect={(n) => (selected = n)} />
+      <EditDeck
+        keys={rule.keys}
+        inherited={config.keys}
+        label={config.label}
+        screen={rule.screen ?? baseScreen}
+        screenState={rule.screen ? 'override' : 'inherited'}
+        {selected}
+        onselect={(n) => (selected = n)}
+        onswap={swap}
+      />
       <div class="legend">
         <span><span class="swatch override"></span>Trocada nesta regra</span>
         <span><span class="swatch inherited"></span>Vem do layout padrão (clique para sobrescrever)</span>
@@ -111,29 +169,62 @@
         <h1>Layout padrão</h1>
         <p class="muted">É o que o D200 mostra quando nenhuma regra está valendo. Cada regra troca só as teclas que sobrescreve.</p>
       </div>
-      <EditDeck keys={config.keys} {selected} onselect={(n) => (selected = n)} />
+      <EditDeck
+        keys={config.keys}
+        label={config.label}
+        screen={baseScreen}
+        screenState="own"
+        {selected}
+        onselect={(n) => (selected = n)}
+        onswap={swap}
+      />
     {/if}
-    <p class="muted small">As mudanças são salvas sozinhas e aparecem no D200 na hora.</p>
+    <p class="muted small">
+      Arraste uma tecla sobre outra para trocar as duas de lugar. Ctrl+C e Ctrl+V copiam e colam a tecla selecionada. Clique no visor para
+      escolher o que ele mostra.
+    </p>
   </main>
 
-  <aside aria-label="Tecla selecionada">
-    {#if rule && index !== null}
-      <KeyEditor bind:keys={config.rules[index].keys} number={selected} inherited={config.keys[selected] ?? null} inRule {glyphs} />
+  <aside class="scroll" aria-label="Tecla selecionada">
+    {#if selected === 14 && rule && index !== null}
+      <ScreenEditor bind:screen={config.rules[index].screen} inRule inherited={baseScreen} {glyphs} {edgePages} />
+    {:else if selected === 14}
+      <ScreenEditor bind:screen={config.screen} inRule={false} inherited={baseScreen} {glyphs} {edgePages} />
+    {:else if rule && index !== null}
+      <KeyEditor
+        bind:keys={config.rules[index].keys}
+        number={selected}
+        inherited={config.keys[selected] ?? null}
+        inRule
+        {glyphs}
+        {edgePages}
+        labelStyle={config.label}
+        {clipboard}
+        {oncopy}
+      />
     {:else}
-      <KeyEditor bind:keys={config.keys} number={selected} inRule={false} {glyphs} />
+      <KeyEditor
+        bind:keys={config.keys}
+        number={selected}
+        inRule={false}
+        {glyphs}
+        {edgePages}
+        labelStyle={config.label}
+        {clipboard}
+        {oncopy}
+      />
     {/if}
   </aside>
 </div>
 
 <style>
   .layout {
-    flex: 999 1 640px;
+    flex: 1 1 auto;
     min-width: 0;
     display: flex;
-    flex-wrap: wrap;
   }
   main {
-    flex: 999 1 520px;
+    flex: 1 1 auto;
     min-width: 0;
     padding: 24px 28px 32px;
     display: flex;
@@ -141,8 +232,8 @@
     gap: 16px;
   }
   aside {
-    flex: 1 1 300px;
-    max-width: 360px;
+    flex: none;
+    width: 340px;
     padding: 24px 20px;
     background: var(--panel);
     border-left: 1px solid var(--line-soft);
@@ -202,11 +293,6 @@
     gap: 10px;
   }
   .when input {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 7px 10px;
-    color: var(--text);
     min-width: 220px;
   }
   .segmented {
@@ -249,7 +335,7 @@
     accent-color: var(--accent);
   }
   .danger {
-    background: #8f2a2a;
+    background: var(--danger);
     border: 0;
     border-radius: 10px;
     padding: 9px 14px;
@@ -276,10 +362,10 @@
   }
   .swatch.override {
     border: 2px solid var(--accent);
-    background: var(--key);
+    background: var(--device-key);
   }
   .swatch.inherited {
     border: 1px dashed #4a4e57;
-    background: var(--panel);
+    background: var(--device-empty);
   }
 </style>

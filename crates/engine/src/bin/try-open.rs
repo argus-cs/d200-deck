@@ -8,5 +8,5 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let target = args.next().expect("faltou o alvo");
     let extra = args.next();
-    execute(&Action::Open { target, args: extra })
+    execute(&Action::Open { target, args: extra, watch: false })
 }

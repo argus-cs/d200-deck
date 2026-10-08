@@ -38,8 +38,17 @@ pub fn watch_foreground() -> Receiver<Option<String>> {
 #[cfg(windows)]
 pub use win::{bring_to_front, give_back, visible_apps};
 
+/// An app with a window open.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VisibleApp {
+    /// The exe file name as spelled on disk.
+    pub exe: String,
+    pub title: String,
+    pub path: String,
+}
+
 #[cfg(not(windows))]
-pub fn visible_apps() -> Vec<(String, String)> {
+pub fn visible_apps() -> Vec<VisibleApp> {
     Vec::new()
 }
 
@@ -64,6 +73,8 @@ mod win {
         GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
         SetForegroundWindow, ShowWindow, EVENT_SYSTEM_FOREGROUND, GW_OWNER, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT,
     };
+
+    use super::VisibleApp;
 
     static FOREGROUND: OnceLock<Sender<Option<String>>> = OnceLock::new();
 
@@ -93,11 +104,15 @@ mod win {
     }
 
     fn process_of(hwnd: HWND) -> Option<String> {
-        exe_name(hwnd).map(|name| name.to_ascii_lowercase())
+        exe_path(hwnd).and_then(|path| file_name(&path)).map(|name| name.to_ascii_lowercase())
     }
 
-    /// The exe file name of the window's process, as spelled on disk.
-    fn exe_name(hwnd: HWND) -> Option<String> {
+    fn file_name(path: &str) -> Option<String> {
+        path.rsplit('\\').next().map(str::to_string)
+    }
+
+    /// The full exe path of the window's process.
+    fn exe_path(hwnd: HWND) -> Option<String> {
         if hwnd.is_invalid() {
             return None;
         }
@@ -113,8 +128,7 @@ mod win {
             let result = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, PWSTR(buf.as_mut_ptr()), &mut len);
             let _ = CloseHandle(handle);
             result.ok()?;
-            let path = String::from_utf16_lossy(&buf[..len as usize]);
-            path.rsplit('\\').next().map(str::to_string)
+            Some(String::from_utf16_lossy(&buf[..len as usize]))
         }
     }
 
@@ -127,23 +141,23 @@ mod win {
     }
 
     unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
-        let apps = &mut *(lparam.0 as *mut Vec<(String, String)>);
+        let apps = &mut *(lparam.0 as *mut Vec<VisibleApp>);
         if is_app_window(hwnd) {
-            if let Some(exe) = exe_name(hwnd) {
+            if let Some((path, exe)) = exe_path(hwnd).and_then(|path| file_name(&path).map(|exe| (path, exe))) {
                 let mut buf = [0u16; 512];
                 let len = GetWindowTextW(hwnd, &mut buf).max(0) as usize;
                 let title = String::from_utf16_lossy(&buf[..len]);
-                if !apps.iter().any(|(known, _)| known.eq_ignore_ascii_case(&exe)) {
-                    apps.push((exe, title));
+                if !apps.iter().any(|known| known.exe.eq_ignore_ascii_case(&exe)) {
+                    apps.push(VisibleApp { exe, title, path });
                 }
             }
         }
         BOOL(1)
     }
 
-    /// Apps with a window open now, front to back: (exe name, window title).
-    pub fn visible_apps() -> Vec<(String, String)> {
-        let mut apps: Vec<(String, String)> = Vec::new();
+    /// Apps with a window open now, front to back.
+    pub fn visible_apps() -> Vec<VisibleApp> {
+        let mut apps: Vec<VisibleApp> = Vec::new();
         unsafe {
             let _ = EnumWindows(Some(collect_window), LPARAM(&mut apps as *mut _ as isize));
         }

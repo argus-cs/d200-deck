@@ -31,6 +31,8 @@ pub struct Tabs {
 pub struct Tab {
     pub id: i64,
     pub url: String,
+    #[serde(default)]
+    pub title: String,
 }
 
 /// A pretend context to try rules without opening the apps: one rule's app
@@ -46,7 +48,7 @@ pub fn simulated_context(config: &Config, simulation: &Simulation) -> Context {
     let mut next_id = -1;
     let mut fake_tab = |site: &str| {
         // Wildcards become a plain segment so the pattern still matches.
-        let tab = Tab { id: next_id, url: format!("https://{}/", site.replace('*', "x")) };
+        let tab = Tab { id: next_id, url: format!("https://{}/", site.replace('*', "x")), title: String::new() };
         next_id -= 1;
         tab
     };
@@ -184,11 +186,18 @@ mod tests {
     use crate::config::When;
 
     fn key(label: &str) -> Key {
-        Key { label: label.into(), icon: None, color: "#24262B".into(), action: None, front: false }
+        Key { label: label.into(), ..Key::default() }
     }
 
     fn rule(name: &str, when: When, mode: RuleMode, keys: &[(u8, &str)]) -> Rule {
-        Rule { name: name.into(), when, mode, enabled: true, keys: keys.iter().map(|(n, l)| (*n, key(l))).collect() }
+        Rule {
+            name: name.into(),
+            when,
+            mode,
+            enabled: true,
+            keys: keys.iter().map(|(n, l)| (*n, key(l))).collect(),
+            screen: None,
+        }
     }
 
     fn process(name: &str) -> When {
@@ -213,7 +222,7 @@ mod tests {
     }
 
     fn tab(id: i64, url: &str) -> Tab {
-        Tab { id, url: url.into() }
+        Tab { id, url: url.into(), title: String::new() }
     }
 
     fn ctx(focused: Option<&str>, running: &[&str]) -> Context {

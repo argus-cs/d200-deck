@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { pickImage } from './api';
-  import { hotkeyFrom } from './hotkey';
-  import { iconUrl } from './icons.svelte';
-  import { ACTION_TYPES, MEDIA_KEYS, blankKey, newAction, position, type Action, type Key } from './types';
+  import ActionEditor from './ActionEditor.svelte';
+  import ColorPicker from './ColorPicker.svelte';
+  import Icon from './Icon.svelte';
+  import IconPicker from './IconPicker.svelte';
+  import { ICON_COLOR, blankKey, position, secondFace, type EdgePage, type Glyph, type Key, type KeyFace, type LabelStyle } from './types';
 
   let {
     keys = $bindable(),
@@ -10,21 +11,37 @@
     inherited = null,
     inRule,
     glyphs,
+    edgePages,
+    labelStyle,
+    clipboard,
+    oncopy,
   }: {
     keys: Record<string, Key>;
     number: number;
     /** The default layout's key under a rule. */
     inherited?: Key | null;
     inRule: boolean;
-    glyphs: string[];
+    glyphs: Glyph[];
+    edgePages: EdgePage[];
+    /** Where the default text color and size come from. */
+    labelStyle: LabelStyle;
+    clipboard: Key | null;
+    oncopy: (key: Key) => void;
   } = $props();
+
+  type Paint = 'color' | 'icon_color' | 'text_color' | 'border';
+
+  function paint(face: KeyFace | null | undefined, field: Paint, color: string | null) {
+    if (!face) return;
+    if (field === 'color') {
+      if (color) face.color = color;
+    } else {
+      face[field] = color;
+    }
+  }
 
   const id = $derived(String(number));
   const key = $derived(keys[id]);
-  const SWATCHES = ['#24262B', '#3A2A12', '#1F3A2A', '#12303A', '#2A1F3A', '#3A1616'];
-
-  let recording = $state(false);
-  let pickError = $state<string | null>(null);
 
   function create() {
     keys[id] = inherited ? { ...$state.snapshot(inherited), front: false } : blankKey();
@@ -34,47 +51,32 @@
     delete keys[id];
   }
 
-  function setType(type: string) {
-    keys[id].action = type ? newAction(type as Action['type']) : null;
+  function copy() {
+    if (key) oncopy($state.snapshot(key));
   }
 
-  async function chooseImage() {
-    pickError = null;
-    try {
-      const path = await pickImage();
-      if (path) keys[id].icon = path;
-    } catch (e) {
-      pickError = String(e);
-    }
+  function paste() {
+    if (clipboard) keys[id] = { ...structuredClone(clipboard), front: inRule ? (clipboard.front ?? false) : false };
   }
 
-  function record() {
-    const action = keys[id]?.action;
-    if (action?.type !== 'hotkey') return;
-    recording = true;
-    const onKey = (event: KeyboardEvent) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.code === 'Escape' && !event.ctrlKey && !event.altKey && !event.shiftKey) {
-        stop();
-        return;
-      }
-      const combo = hotkeyFrom(event);
-      if (!combo) return;
-      action.keys = combo;
-      stop();
-    };
-    const stop = () => {
-      recording = false;
-      window.removeEventListener('keydown', onKey, true);
-    };
-    window.addEventListener('keydown', onKey, true);
+  function setTwoState(on: boolean) {
+    keys[id].toggle = on ? secondFace($state.snapshot(keys[id])) : null;
   }
 </script>
 
 <div class="head">
-  <div class="muted small">{position(number)}</div>
-  <h2>Tecla {number}</h2>
+  <div>
+    <div class="muted small">{position(number)}</div>
+    <h2>Tecla {number}</h2>
+  </div>
+  <div class="clip">
+    <button type="button" class="icon-btn" title="Copiar tecla (Ctrl+C)" aria-label="Copiar tecla" disabled={!key} onclick={copy}>
+      <Icon name="copy" size={16} />
+    </button>
+    <button type="button" class="icon-btn" title="Colar tecla (Ctrl+V)" aria-label="Colar tecla" disabled={!clipboard} onclick={paste}>
+      <Icon name="paste" size={16} />
+    </button>
+  </div>
 </div>
 
 {#if !key}
@@ -91,27 +93,7 @@
 {:else}
   <div class="field">
     <span class="name">Ícone</span>
-    <div class="glyphs">
-      {#each glyphs as glyph (glyph)}
-        {@const url = iconUrl(glyph, key.color)}
-        <button
-          type="button"
-          class="glyph"
-          class:on={key.icon === glyph}
-          aria-label={`Ícone ${glyph}`}
-          aria-pressed={key.icon === glyph}
-          onclick={() => (key.icon = glyph)}
-        >
-          {#if url}<img src={url} alt="" />{/if}
-        </button>
-      {/each}
-    </div>
-    <div class="row">
-      <button type="button" class="secondary small-btn" onclick={chooseImage}>Usar imagem PNG…</button>
-      <button type="button" class="secondary small-btn" aria-pressed={!key.icon} onclick={() => (key.icon = null)}>Só a cor</button>
-    </div>
-    {#if key.icon && !glyphs.includes(key.icon)}<span class="muted small mono">{key.icon}</span>{/if}
-    {#if pickError}<span class="error small">{pickError}</span>{/if}
+    <IconPicker icon={key.icon} color={key.color} iconColor={key.icon_color} {glyphs} {edgePages} onchange={(icon) => (key.icon = icon)} />
   </div>
 
   <div class="field">
@@ -120,66 +102,77 @@
   </div>
 
   <div class="field">
-    <span class="name">Cor de fundo</span>
-    <div class="row">
-      {#each SWATCHES as swatch (swatch)}
-        <button
-          type="button"
-          class="swatch"
-          style:background={swatch}
-          aria-label={`Cor ${swatch}`}
-          aria-pressed={key.color.toUpperCase() === swatch}
-          onclick={() => (key.color = swatch)}
-        ></button>
-      {/each}
-      <input type="color" aria-label="Outra cor" bind:value={key.color} />
-    </div>
+    <span class="name">Cores</span>
+    <ColorPicker label="Fundo" value={key.color} onchange={(c) => paint(key, 'color', c)} />
+    <ColorPicker label="Ícone" value={key.icon_color} placeholder={ICON_COLOR} allowNone noneLabel="Padrão" onchange={(c) => paint(key, 'icon_color', c)} />
+    <ColorPicker
+      label="Texto"
+      value={key.text_color}
+      placeholder={`#${labelStyle.color}`}
+      allowNone
+      noneLabel="Padrão dos Ajustes"
+      onchange={(c) => paint(key, 'text_color', c)}
+    />
+    <ColorPicker label="Borda" value={key.border} allowNone noneLabel="Sem borda" onchange={(c) => paint(key, 'border', c)} />
   </div>
 
-  <div class="field">
-    <label class="name" for="key-action">Ação</label>
-    <select id="key-action" value={key.action?.type ?? ''} onchange={(e) => setType(e.currentTarget.value)}>
-      <option value="">Nenhuma</option>
-      {#each ACTION_TYPES as type (type.value)}<option value={type.value}>{type.label}</option>{/each}
-    </select>
-  </div>
+  <ActionEditor bind:action={key.action} id="key" {edgePages} />
 
-  {#if key.action?.type === 'hotkey'}
-    <div class="field">
-      <label class="name" for="key-hotkey">Teclas</label>
-      <div class="row">
-        <input id="key-hotkey" class="mono grow" type="text" bind:value={key.action.keys} placeholder="Ex.: Ctrl+Shift+M" />
-        <button type="button" class="secondary" class:recording onclick={record} disabled={recording}>
-          {recording ? 'Aperte…' : 'Gravar'}
-        </button>
+  <label class="check">
+    <input type="checkbox" checked={!!key.toggle} onchange={(e) => setTwoState(e.currentTarget.checked)} />
+    <span>
+      <span>Tecla de dois estados</span>
+      <span class="muted small">Cada toque executa a ação e alterna o visual, como microfone ligado e mutado.</span>
+    </span>
+  </label>
+
+  {#if key.toggle}
+    <section class="second">
+      <h3>Segundo estado</h3>
+      <div class="field">
+        <span class="name">Ícone</span>
+        <IconPicker
+          icon={key.toggle.icon}
+          color={key.toggle.color}
+          iconColor={key.toggle.icon_color}
+          {glyphs}
+          {edgePages}
+          onchange={(icon) => {
+            if (key.toggle) key.toggle.icon = icon;
+          }}
+        />
       </div>
-      {#if recording}<span class="muted small">Aperte a combinação (Esc cancela).</span>{/if}
-      <span class="muted small">Combinações com Win (Win+G, Win+D…) o Windows não deixa gravar: digite no campo, como Win+G.</span>
-    </div>
-  {:else if key.action?.type === 'open'}
-    <div class="field">
-      <label class="name" for="key-target">App, arquivo, pasta ou endereço</label>
-      <input id="key-target" class="mono" type="text" bind:value={key.action.target} placeholder="Ex.: spotify.exe ou https://…" />
-      <label class="name" for="key-args">Argumentos (opcional)</label>
-      <input id="key-args" class="mono" type="text" bind:value={key.action.args} />
-    </div>
-  {:else if key.action?.type === 'command'}
-    <div class="field">
-      <label class="name" for="key-command">Comando (roda no cmd, sem janela)</label>
-      <input id="key-command" class="mono" type="text" bind:value={key.action.command} />
-    </div>
-  {:else if key.action?.type === 'text'}
-    <div class="field">
-      <label class="name" for="key-text">Texto a digitar</label>
-      <textarea id="key-text" rows="3" bind:value={key.action.text}></textarea>
-    </div>
-  {:else if key.action?.type === 'media'}
-    <div class="field">
-      <label class="name" for="key-media">Comando de mídia</label>
-      <select id="key-media" bind:value={key.action.key}>
-        {#each MEDIA_KEYS as media (media.value)}<option value={media.value}>{media.label}</option>{/each}
-      </select>
-    </div>
+      <div class="field">
+        <label class="name" for="second-label">Texto na tecla</label>
+        <input id="second-label" type="text" bind:value={key.toggle.label} placeholder="Ex.: Mutado" />
+      </div>
+      <div class="field">
+        <span class="name">Cores</span>
+        <ColorPicker label="Fundo" value={key.toggle.color} onchange={(c) => paint(key.toggle, 'color', c)} />
+        <ColorPicker
+          label="Ícone"
+          value={key.toggle.icon_color}
+          placeholder={ICON_COLOR}
+          allowNone
+          noneLabel="Padrão"
+          onchange={(c) => paint(key.toggle, 'icon_color', c)}
+        />
+        <ColorPicker
+          label="Texto"
+          value={key.toggle.text_color}
+          placeholder={`#${labelStyle.color}`}
+          allowNone
+          noneLabel="Padrão dos Ajustes"
+          onchange={(c) => paint(key.toggle, 'text_color', c)}
+        />
+        <ColorPicker label="Borda" value={key.toggle.border} allowNone noneLabel="Sem borda" onchange={(c) => paint(key.toggle, 'border', c)} />
+      </div>
+      <ActionEditor bind:action={key.toggle.action} id="second" noneLabel="A mesma do primeiro estado" {edgePages} />
+      <p class="muted small">
+        O app não sabe se o outro programa mudou de estado sozinho (por exemplo, se você mutar pelo mouse). Nesse caso, um toque a mais
+        acerta o visual.
+      </p>
+    </section>
   {/if}
 
   {#if inRule}
@@ -196,13 +189,42 @@
 {/if}
 
 <style>
+  .head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
   .head h2 {
     font-size: 18px;
     font-weight: 600;
   }
+  .clip {
+    display: flex;
+    gap: 6px;
+  }
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: 9px;
+    border: 1px solid var(--line-strong);
+    background: transparent;
+    color: var(--soft);
+  }
+  .icon-btn:hover:not(:disabled) {
+    background: var(--hover);
+  }
+  .icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
   .notice {
     padding: 14px;
-    border: 1px dashed #4a4e57;
+    border: 1px dashed var(--line-strong);
     border-radius: 12px;
     background: var(--surface);
   }
@@ -215,89 +237,15 @@
     font-size: 13px;
     font-weight: 500;
   }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-  }
-  .grow {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  input[type='text'],
-  select,
-  textarea {
+  input[type='text'] {
     width: 100%;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 8px 10px;
-    color: var(--text);
-    font: inherit;
-  }
-  .row input[type='text'] {
-    width: auto;
-  }
-  textarea {
-    resize: vertical;
-  }
-  .glyphs {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 6px;
-  }
-  .glyph {
-    aspect-ratio: 1 / 1;
-    padding: 0;
-    border-radius: 8px;
-    border: 1px solid #2e3036;
-    background: var(--surface);
-    overflow: hidden;
-  }
-  .glyph img {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-  .glyph.on {
-    border: 2px solid var(--accent);
-  }
-  .swatch {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    border: 1px solid var(--line);
-    padding: 0;
-  }
-  .swatch[aria-pressed='true'] {
-    border: 2px solid var(--accent);
-  }
-  input[type='color'] {
-    width: 36px;
-    height: 30px;
-    padding: 0;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: transparent;
-  }
-  .small-btn {
-    padding: 6px 10px;
-    font-size: 13px;
-  }
-  .small-btn[aria-pressed='true'] {
-    border-color: var(--accent);
-  }
-  .recording {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .check {
     display: flex;
     gap: 10px;
     align-items: flex-start;
     padding: 12px;
-    border: 1px solid #2e3036;
+    border: 1px solid var(--line-soft);
     border-radius: 12px;
     background: var(--surface);
   }
@@ -310,7 +258,19 @@
     margin-top: 3px;
     accent-color: var(--accent);
   }
-  .error {
-    color: #ff9b8f;
+  .second {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+  }
+  .second h3 {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-text);
   }
 </style>

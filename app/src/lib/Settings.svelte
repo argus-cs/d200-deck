@@ -1,14 +1,16 @@
 <script lang="ts">
   import { openConfig } from './api';
+  import ColorPicker from './ColorPicker.svelte';
   import type { Config } from './types';
 
   let { config = $bindable(), configPath }: { config: Config; configPath: string } = $props();
 
-  // The device takes the label color as hex without "#".
+  // config.json keeps the label color as hex without "#".
   const labelColor = $derived(`#${config.label.color}`);
 </script>
 
-<div class="page">
+<div class="page scroll">
+<div class="content">
   <h1>Ajustes</h1>
 
   <section class="card">
@@ -17,33 +19,20 @@
       <label for="brightness">Brilho <span class="mono muted">{config.brightness}%</span></label>
       <input id="brightness" type="range" min="0" max="100" bind:value={config.brightness} />
     </div>
-    <div class="field">
-      <label for="window">Visor (a tela larga ao lado das teclas)</label>
-      <select id="window" bind:value={config.window}>
-        <option value="clock">Relógio</option>
-        <option value="stats">Uso do PC (CPU e memória)</option>
-        <option value="image">Imagem da tecla 14</option>
-      </select>
-    </div>
+    <p class="muted small">O visor (a tela larga ao lado das teclas) é editado clicando nele no Layout padrão ou numa regra.</p>
   </section>
 
   <section class="card">
     <h2>Texto nas teclas</h2>
     <label class="check"><input type="checkbox" bind:checked={config.label.show} /> Mostrar o texto embaixo do ícone</label>
-    <div class="row">
-      <div class="field">
-        <label for="label-size">Tamanho</label>
-        <input id="label-size" type="number" min="6" max="24" bind:value={config.label.size} />
-      </div>
-      <div class="field">
-        <label for="label-color">Cor</label>
-        <input
-          id="label-color"
-          type="color"
-          value={labelColor}
-          oninput={(e) => (config.label.color = e.currentTarget.value.slice(1).toUpperCase())}
-        />
-      </div>
+    <div class="field">
+      <label for="label-size">Tamanho</label>
+      <input id="label-size" type="number" min="6" max="20" bind:value={config.label.size} />
+    </div>
+    <div class="field">
+      <span class="label">Cor padrão</span>
+      <ColorPicker label="Texto" value={labelColor} onchange={(c) => c && (config.label.color = c.slice(1))} />
+      <span class="muted small">Cada tecla pode ter a sua no editor; esta vale para as que não têm.</span>
     </div>
   </section>
 
@@ -54,12 +43,16 @@
     <div><button type="button" class="secondary" onclick={() => openConfig()}>Abrir config.json</button></div>
   </section>
 
-  <p class="muted small">Para iniciar com o Windows, use o menu do ícone na bandeja.</p>
+  <p class="muted small">Para iniciar com o Windows, use o menu do ícone na bandeja. O tema claro ou escuro segue o do Windows.</p>
+</div>
 </div>
 
 <style>
   .page {
-    flex: 999 1 640px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .content {
     max-width: 720px;
     padding: 28px;
     display: flex;
@@ -78,35 +71,16 @@
     flex-direction: column;
     gap: 6px;
   }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-  }
-  label {
+  label,
+  .label {
     font-weight: 500;
   }
-  select,
   input[type='number'] {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 8px 10px;
-    color: var(--text);
-    font: inherit;
     max-width: 320px;
   }
   input[type='range'] {
     max-width: 320px;
     accent-color: var(--accent);
-  }
-  input[type='color'] {
-    width: 44px;
-    height: 34px;
-    padding: 0;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: transparent;
   }
   .check {
     display: flex;

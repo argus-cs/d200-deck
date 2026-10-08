@@ -26,11 +26,15 @@ pub const PORT: u16 = 47820;
 const POLL: Duration = Duration::from_millis(50);
 const ACK_TIMEOUT: Duration = Duration::from_secs(1);
 
+const FAVICON_TIMEOUT: Duration = Duration::from_secs(3);
+
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum FromExtension {
     Tabs { active: Option<Tab>, open: Vec<Tab> },
     Ack { id: u64, ok: bool },
+    /// A tab's icon as base64 PNG; `None` when Edge has none for it.
+    Favicon { id: u64, data: Option<String> },
     Keepalive,
 }
 
@@ -45,6 +49,7 @@ struct Inner {
     outgoing: Mutex<Option<(u64, Sender<String>)>>,
     /// Requests waiting for the extension's answer, by id.
     waiting: Mutex<HashMap<u64, Sender<bool>>>,
+    favicons: Mutex<HashMap<u64, Sender<Option<String>>>>,
     next_id: AtomicU64,
 }
 
@@ -95,6 +100,26 @@ impl Bridge {
         }
     }
 
+    /// The icon Edge keeps for a page, as PNG bytes. Edge answers from its
+    /// own cache: the site itself is not contacted.
+    pub fn favicon(&self, url: &str) -> Result<Vec<u8>> {
+        use base64::Engine as _;
+
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = channel();
+        self.inner.favicons.lock().unwrap().insert(id, tx);
+        let message = json!({ "type": "favicon", "id": id, "url": url }).to_string();
+        let sent = self.inner.outgoing.lock().unwrap().as_ref().is_some_and(|(_, out)| out.send(message).is_ok());
+        let answer = if sent { rx.recv_timeout(FAVICON_TIMEOUT).ok() } else { None };
+        self.inner.favicons.lock().unwrap().remove(&id);
+        match (sent, answer) {
+            (false, _) => bail!("a extensão do Edge não está conectada"),
+            (true, None) => bail!("a extensão do Edge não respondeu (recarregue-a em edge://extensions depois de atualizar)"),
+            (true, Some(None)) => bail!("o Edge não tem um ícone guardado para esse site"),
+            (true, Some(Some(data))) => Ok(base64::engine::general_purpose::STANDARD.decode(data)?),
+        }
+    }
+
     fn serve(&self, stream: TcpStream, tabs: &Sender<Tabs>) -> Result<()> {
         let mut socket = tungstenite::accept_hdr(stream, only_extensions)?;
         // Short reads let this thread also deliver outgoing messages.
@@ -133,6 +158,11 @@ impl Bridge {
             Ok(FromExtension::Ack { id, ok }) => {
                 if let Some(waiter) = self.inner.waiting.lock().unwrap().remove(&id) {
                     let _ = waiter.send(ok);
+                }
+            }
+            Ok(FromExtension::Favicon { id, data }) => {
+                if let Some(waiter) = self.inner.favicons.lock().unwrap().remove(&id) {
+                    let _ = waiter.send(data);
                 }
             }
             Ok(FromExtension::Keepalive) => {}

@@ -20,6 +20,7 @@ comandos:
   listen               mostra as teclas apertadas
   test                 manda 14 teclas coloridas numeradas e fica ouvindo
   partial <1-14>       troca só uma tecla (testa a atualização parcial 0x000D) e sai
+  screen-test <w> <h>  manda uma imagem de teste w×h para o visor e fica ouvindo (use --window image)
   brightness <0-100>   muda o brilho
   window <clock|stats|image>  muda o visor
 
@@ -54,6 +55,17 @@ fn main() -> Result<()> {
             println!("atualização parcial enviada para a tecla {key} ({size} bytes)");
             println!("confira: só a tecla {key} deve ter mudado.");
             Ok(())
+        }
+        Some("screen-test") => {
+            let width: u32 = arg(&args, 1)?.parse().context("largura em pixels")?;
+            let height: u32 = arg(&args, 2)?.parse().context("altura em pixels")?;
+            let d = open(&api, report_id)?;
+            let keys = BTreeMap::from([(KEY_COUNT - 1, KeyView { text: String::new(), png: Some(screen_pattern(width, height)?) })]);
+            let size = d.set_layout(&keys, true)?;
+            d.set_small_window(mode, 0, 0, 0)?;
+            println!("imagem de teste {width}x{height} enviada para o visor ({size} bytes)");
+            println!("esperado: metade esquerda azul, direita verde, borda vermelha, círculo branco no meio, quadradinhos brancos nos 4 cantos");
+            listen(&d, keepalive, mode)
         }
         Some("brightness") => {
             let percent: u8 = arg(&args, 1)?.parse().context("brilho de 0 a 100")?;
@@ -166,6 +178,34 @@ fn icon(rgb: [u8; 3]) -> Result<Vec<u8>> {
     let img = RgbImage::from_fn(ICON_SIZE, ICON_SIZE, |x, y| {
         let edge = x < border || y < border || x >= ICON_SIZE - border || y >= ICON_SIZE - border;
         if edge { Rgb([255, 255, 255]) } else { Rgb(rgb) }
+    });
+    let mut png = Vec::new();
+    DynamicImage::ImageRgb8(img).write_to(&mut Cursor::new(&mut png), ImageFormat::Png)?;
+    Ok(png)
+}
+
+/// Shows how the visor fits an image: halves in two colors (cropping), a
+/// circle (stretching), a border and corner squares (what reaches the edges).
+fn screen_pattern(width: u32, height: u32) -> Result<Vec<u8>> {
+    let (cx, cy) = (width as f32 / 2.0, height as f32 / 2.0);
+    let radius = height as f32 * 0.3;
+    let corner = (height / 8).max(6);
+    let img = RgbImage::from_fn(width, height, |x, y| {
+        let border = x < 6 || y < 6 || x >= width - 6 || y >= height - 6;
+        let in_corner = |ax: u32, ay: u32| x >= ax && x < ax + corner && y >= ay && y < ay + corner;
+        let corners = in_corner(8, 8) || in_corner(width - 8 - corner, 8) || in_corner(8, height - 8 - corner)
+            || in_corner(width - 8 - corner, height - 8 - corner);
+        let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+        let ring = ((dx * dx + dy * dy).sqrt() - radius).abs() < 4.0;
+        if border {
+            Rgb([220, 40, 40])
+        } else if corners || ring {
+            Rgb([255, 255, 255])
+        } else if x < width / 2 {
+            Rgb([40, 90, 220])
+        } else {
+            Rgb([40, 170, 80])
+        }
     });
     let mut png = Vec::new();
     DynamicImage::ImageRgb8(img).write_to(&mut Cursor::new(&mut png), ImageFormat::Png)?;

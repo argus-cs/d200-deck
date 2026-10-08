@@ -1,14 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { runningApps } from './api';
+  import ExtensionGuide from './ExtensionGuide.svelte';
   import Icon from './Icon.svelte';
   import type { Mode, Rule } from './types';
 
   let {
     edgeTabs,
+    extension,
     oncreate,
     oncancel,
-  }: { edgeTabs: string[]; oncreate: (rule: Rule) => void; oncancel: () => void } = $props();
+  }: { edgeTabs: string[]; extension: boolean; oncreate: (rule: Rule) => void; oncancel: () => void } = $props();
 
   let kind = $state<'app' | 'site'>('app');
   let apps = $state<{ exe: string; title: string }[]>([]);
@@ -53,7 +55,8 @@
   }
 </script>
 
-<div class="page">
+<div class="page scroll">
+<div class="content">
   <div>
     <h1>Nova regra</h1>
     <p class="muted">Escolha quando a regra vale. As teclas você define no passo seguinte, direto no D200 virtual.</p>
@@ -93,6 +96,7 @@
         </div>
       </div>
     {:else}
+      {#if !extension}<ExtensionGuide />{/if}
       <div class="box">
         <label class="name" for="site">Endereço</label>
         <input id="site" class="mono" type="text" bind:value={site} placeholder="youtube.com ou github.com/*/pulls" />
@@ -137,10 +141,14 @@
     <button type="button" class="primary" disabled={!target} onclick={create}>Criar e escolher as teclas</button>
   </div>
 </div>
+</div>
 
 <style>
   .page {
-    flex: 999 1 640px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .content {
     max-width: 900px;
     padding: 28px;
     display: flex;
@@ -190,7 +198,7 @@
     color: var(--ink);
   }
   .box {
-    background: #17181b;
+    background: var(--raised);
     border: 1px solid var(--line-soft);
     border-radius: 16px;
     padding: 16px;
@@ -209,12 +217,8 @@
     min-width: 0;
   }
   input[type='text'] {
-    background: var(--surface);
-    border: 1px solid var(--line);
     border-radius: 10px;
     padding: 9px 12px;
-    color: var(--text);
-    font: inherit;
   }
   .narrow {
     max-width: 420px;
@@ -230,21 +234,21 @@
     gap: 12px;
     padding: 10px 12px;
     border-radius: 12px;
-    border: 1px solid #2e3036;
+    border: 1px solid var(--line-soft);
     background: var(--surface);
     text-align: left;
     min-width: 0;
   }
   .app[aria-pressed='true'] {
     border: 2px solid var(--accent);
-    background: var(--key);
+    background: var(--selected);
   }
   .initial {
     width: 32px;
     height: 32px;
     flex: none;
     border-radius: 8px;
-    background: #2a2c31;
+    background: var(--key);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -295,7 +299,7 @@
     padding: 16px 18px;
     border-radius: 14px;
     border: 1px solid var(--line);
-    background: #17181b;
+    background: var(--raised);
     text-align: left;
   }
   .mode strong {

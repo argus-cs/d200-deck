@@ -23,7 +23,7 @@ async function sendTabs() {
   }
   const all = await chrome.tabs.query({});
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const pick = (tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '' });
+  const pick = (tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '', title: tab.title || '' });
   socket.send(JSON.stringify({
     type: 'tabs',
     active: active ? pick(active) : null,
@@ -38,6 +38,7 @@ function scheduleSend() {
 }
 
 async function handle(message) {
+  if (message.type === 'favicon') return sendFavicon(message);
   if (message.type !== 'activate') return;
   let ok = false;
   try {
@@ -48,6 +49,22 @@ async function handle(message) {
     // The tab was closed in the meantime.
   }
   socket?.send(JSON.stringify({ type: 'ack', id: message.id, ok }));
+}
+
+// The icon Edge already keeps for a page (the "favicon" permission): the
+// site itself is not contacted.
+async function sendFavicon(message) {
+  let data = null;
+  try {
+    const url = chrome.runtime.getURL(`/_favicon/?pageUrl=${encodeURIComponent(message.url)}&size=128`);
+    const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    data = btoa(binary);
+  } catch {
+    // No icon for that page.
+  }
+  socket?.send(JSON.stringify({ type: 'favicon', id: message.id, data }));
 }
 
 chrome.tabs.onActivated.addListener(scheduleSend);

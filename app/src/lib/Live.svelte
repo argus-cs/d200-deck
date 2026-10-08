@@ -1,16 +1,60 @@
 <script lang="ts">
-  import { simulate } from './api';
+  import { onMount } from 'svelte';
+  import { onActivity, simulate } from './api';
   import Deck from './Deck.svelte';
+  import ExtensionGuide from './ExtensionGuide.svelte';
   import Simulator from './Simulator.svelte';
-  import { modeName, position, type Status } from './types';
+  import { modeName, position, screenLabel, type Activity, type Status } from './types';
 
   let { status }: { status: Status } = $props();
 
-  let selected = $state(1);
+  const GUIDE_DISMISSED = 'd200deck.extensionGuideDismissed';
+  const LIGHT_MS = 450;
 
-  const key = $derived(status.keys.find((k) => k.number === selected) ?? null);
+  let selected = $state(1);
+  let lit = $state<number[]>([]);
+  let feed = $state<(Activity & { id: number; time: string })[]>([]);
+  let guideDismissed = $state(readDismissed());
+  let nextId = 0;
+
+  function readDismissed() {
+    try {
+      return localStorage.getItem(GUIDE_DISMISSED) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function dismissGuide() {
+    guideDismissed = true;
+    try {
+      localStorage.setItem(GUIDE_DISMISSED, '1');
+    } catch {
+      // Only remembered for this session then.
+    }
+  }
+
+  onMount(() => {
+    const stop = onActivity((activity) => {
+      const time = new Date().toLocaleTimeString('pt-BR');
+      feed = [{ ...activity, id: nextId++, time }, ...feed].slice(0, 8);
+      if (activity.error) return;
+      // Restart the animation when the same key is pressed again quickly.
+      lit = lit.filter((n) => n !== activity.number);
+      requestAnimationFrame(() => {
+        lit = [...lit, activity.number];
+        setTimeout(() => (lit = lit.filter((n) => n !== activity.number)), LIGHT_MS);
+      });
+    });
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  });
+
+  const key = $derived(selected === 14 ? null : (status.keys.find((k) => k.number === selected) ?? null));
   const active = $derived(status.rules.filter((r) => r.active));
   const disputes = $derived(status.keys.filter((k) => k.beaten.length > 0));
+  const needsExtension = $derived(!status.extension && status.rules.some((r) => r.kind === 'site'));
   const focusedText = $derived.by(() => {
     if (!status.focused) return 'nada';
     return status.focused_site ? `${status.focused} · ${status.focused_site}` : status.focused;
@@ -18,17 +62,20 @@
 </script>
 
 <div class="layout">
-  <main>
+  <main class="scroll">
     <div>
       <h1>Ao vivo</h1>
-      <p class="muted">O que o D200 está mostrando agora. O ponto marca as teclas trocadas por uma regra.</p>
+      <p class="muted">O que o D200 está mostrando agora. O ponto marca as teclas trocadas por uma regra, e cada tecla apertada acende aqui.</p>
     </div>
+    {#if needsExtension && !guideDismissed}
+      <ExtensionGuide ondismiss={dismissGuide} />
+    {/if}
     <div class="chips">
       <span class="chip"><span class="muted">Em foco</span><span class="mono">{focusedText}</span></span>
       <span class="chip"><span class="muted">Abertos</span><span class="mono">{status.open.join(', ') || 'nenhum com regra'}</span></span>
     </div>
 
-    <Deck keys={status.keys} {selected} window={status.window} onselect={(n) => (selected = n)} />
+    <Deck keys={status.keys} {selected} {lit} screen={status.screen} onselect={(n) => (selected = n)} />
 
     <div class="cards">
       <Simulator rules={status.rules} simulation={status.simulation} onchange={(s) => simulate(s)} />
@@ -58,8 +105,17 @@
     </div>
   </main>
 
-  <aside aria-label="Tecla selecionada">
-    {#if key}
+  <aside class="scroll" aria-label="Tecla selecionada e últimas teclas">
+    {#if selected === 14}
+      <div>
+        <div class="muted small">Tecla 14</div>
+        <h2>Visor</h2>
+      </div>
+      <div class="facts">
+        <div><div class="muted small">Mostrando</div><div>{screenLabel(status.screen.content)}</div></div>
+        <div><div class="muted small">Vem de</div><div>{status.screen.rule ?? 'Layout padrão'}</div></div>
+      </div>
+    {:else if key}
       <div>
         <div class="muted small">{position(key.number)}</div>
         <h2>Tecla {key.number}</h2>
@@ -72,23 +128,48 @@
           <div>{key.rule && key.mode ? `${key.rule} · ${modeName(key.mode)}` : 'Layout padrão'}</div>
         </div>
         <div><div class="muted small">Ao apertar</div><div class="mono">{key.action ?? 'Nenhuma ação'}</div></div>
+        {#if key.toggled}
+          <div><div class="muted small">Estado</div><div>Mostrando o segundo estado</div></div>
+        {/if}
         {#if key.beaten.length > 0}
           <div><div class="muted small">Também queriam esta tecla</div><div>{key.beaten.join(', ')}</div></div>
         {/if}
       </div>
     {/if}
+
+    <div class="feed">
+      <h3>Últimas teclas</h3>
+      {#if feed.length === 0}
+        <p class="muted small">Aperte uma tecla no D200 para ver o que ela faz aqui.</p>
+      {/if}
+      <ol aria-live="polite">
+        {#each feed as item (item.id)}
+          <li class:failed={!!item.error}>
+            <div class="feed-top">
+              <strong>Tecla {item.number}</strong>
+              <span class="muted small">{item.label || 'sem texto'}{item.rule ? ` · ${item.rule}` : ''}</span>
+              <span class="muted small time">{item.time}</span>
+            </div>
+            {#if item.error}
+              <div class="error-text small">Falhou: {item.error}</div>
+            {:else}
+              <div class="mono small">{item.action ?? 'sem ação'}</div>
+            {/if}
+          </li>
+        {/each}
+      </ol>
+    </div>
   </aside>
 </div>
 
 <style>
   .layout {
-    flex: 999 1 640px;
+    flex: 1 1 auto;
     min-width: 0;
     display: flex;
-    flex-wrap: wrap;
   }
   main {
-    flex: 999 1 520px;
+    flex: 1 1 auto;
     min-width: 0;
     padding: 24px 28px 32px;
     display: flex;
@@ -111,7 +192,7 @@
     padding: 5px 12px;
     border-radius: 999px;
     background: var(--surface);
-    border: 1px solid #2e3036;
+    border: 1px solid var(--line-soft);
     font-size: 13px;
   }
   .cards {
@@ -135,7 +216,7 @@
     flex-direction: column;
     gap: 6px;
   }
-  .disputes h3 {
+  h3 {
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -146,8 +227,8 @@
     margin-top: auto;
   }
   aside {
-    flex: 1 1 280px;
-    max-width: 340px;
+    flex: none;
+    width: 320px;
     padding: 24px 20px;
     background: var(--panel);
     border-left: 1px solid var(--line-soft);
@@ -171,7 +252,51 @@
     gap: 12px;
     padding: 14px;
     background: var(--surface);
-    border: 1px solid #2e3036;
+    border: 1px solid var(--line-soft);
     border-radius: 12px;
+  }
+  .feed {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 16px;
+  }
+  .feed ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .feed li {
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .feed li.failed {
+    border-color: var(--error-line);
+    background: var(--error);
+  }
+  .feed-top {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .feed-top .muted:not(.time) {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .time {
+    flex: none;
   }
 </style>

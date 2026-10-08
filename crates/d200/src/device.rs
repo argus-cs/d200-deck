@@ -11,7 +11,20 @@ use crate::protocol::{
     PACKET_SIZE, PRODUCT_ID, USAGE_PAGE, VENDOR_ID,
 };
 
+/// Goes into the image names: the device caches images by file name, so a
+/// name must never repeat, not even across runs (it starts from the clock).
 static LAYOUT_NONCE: AtomicU64 = AtomicU64::new(0);
+
+fn next_nonce() -> u64 {
+    if LAYOUT_NONCE.load(Ordering::Relaxed) == 0 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(1);
+        let _ = LAYOUT_NONCE.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
+    }
+    LAYOUT_NONCE.fetch_add(1, Ordering::Relaxed)
+}
 
 pub struct D200 {
     dev: HidDevice,
@@ -48,7 +61,7 @@ impl D200 {
 
     /// `partial` sends only the given keys (command 0x000D) instead of the whole page.
     pub fn set_layout(&self, keys: &BTreeMap<usize, KeyView>, partial: bool) -> Result<usize> {
-        let zip = build_zip(keys, LAYOUT_NONCE.fetch_add(1, Ordering::Relaxed))?;
+        let zip = build_zip(keys, next_nonce())?;
         let command = if partial { Command::UpdateButtons } else { Command::SetButtons };
         self.send(command, &zip)?;
         Ok(zip.len())

@@ -1,30 +1,87 @@
 :root {
+  color-scheme: dark;
   --bg: #111214;
   --panel: #141518;
   --surface: #1e2024;
+  --raised: #17181b;
   --key: #24262b;
+  --hover: #1b1c20;
+  --selected: #24262b;
   --line: #34373e;
   --line-soft: #26282d;
+  --line-strong: #3a3d44;
   --text: #ecedef;
   --soft: #c9cbd0;
   --muted: #a1a4ab;
   --accent: #f0a63a;
+  /* Accent used as text or outline on the background. */
+  --accent-text: #f0a63a;
   --ink: #16130d;
+  --banner: #2a2111;
+  --banner-line: #4a3a1c;
+  --error: #2e1515;
+  --error-line: #5a2424;
+  --error-text: #ff9b8f;
+  --danger: #8f2a2a;
+  --close-hover: #c42b1c;
+  /* The virtual D200 is a dark device in both themes. */
+  --device: #0a0a0c;
+  --device-line: #2a2c31;
+  --device-key: #24262b;
+  --device-key-line: #34373e;
+  --device-empty: #141518;
+  --device-text: #ecedef;
+  --device-muted: #a1a4ab;
   --mono: 'Cascadia Mono', Consolas, monospace;
-  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f3f3f5;
+    --panel: #fafafb;
+    --surface: #ffffff;
+    --raised: #ffffff;
+    --key: #e9eaee;
+    --hover: #ececf0;
+    --selected: #e3e4e9;
+    --line: #d4d6dc;
+    --line-soft: #e4e5e9;
+    --line-strong: #c3c6cd;
+    --text: #16171a;
+    --soft: #3c3f46;
+    --muted: #5f636b;
+    --accent-text: #9a5b00;
+    --banner: #fff4e0;
+    --banner-line: #f0d29b;
+    --error: #fdecea;
+    --error-line: #f3b8b2;
+    --error-text: #a3261b;
+    --danger: #c42b1c;
+  }
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
 body {
+  height: 100%;
   margin: 0;
+  overflow: hidden;
+}
+
+body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.45;
+}
+
+#app {
+  height: 100%;
 }
 
 button {
@@ -34,7 +91,9 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--text);
   outline-offset: 2px;
 }
@@ -70,7 +129,7 @@ p {
 
 .card {
   flex: 1 1 260px;
-  background: #17181b;
+  background: var(--raised);
   border: 1px solid var(--line-soft);
   border-radius: 16px;
   padding: 18px;
@@ -86,10 +145,14 @@ p {
 
 .secondary {
   background: transparent;
-  border: 1px solid #3a3d44;
+  border: 1px solid var(--line-strong);
   border-radius: 10px;
   padding: 9px 14px;
   font-weight: 500;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--hover);
 }
 
 .primary {
@@ -115,10 +178,40 @@ p {
   border-radius: 999px;
   white-space: nowrap;
   border: 1px solid var(--accent);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .badge.focus {
   background: var(--accent);
   color: var(--ink);
+}
+
+input[type='text'],
+input[type='number'],
+select,
+textarea {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+}
+
+.error-text {
+  color: var(--error-text);
+}
+
+/* Scroll areas: thin bars that follow the theme. */
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* A scroll area scrolls its content instead of squeezing it: without this,
+   a flex column of fixed height shrinks its children, and a child with its
+   own scroll (the icon grid) collapses. */
+.scroll > * {
+  flex-shrink: 0;
 }

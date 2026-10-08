@@ -79,6 +79,12 @@ fn render_file(path: &Path, background: Rgba<u8>) -> Result<Vec<u8>> {
     encode(canvas)
 }
 
+/// A PNG as a data URL, for showing it in the app.
+pub fn data_url(png: &[u8]) -> String {
+    use base64::Engine as _;
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
+}
+
 fn encode(img: RgbaImage) -> Result<Vec<u8>> {
     let mut png = Vec::new();
     DynamicImage::ImageRgba8(img).write_to(&mut Cursor::new(&mut png), ImageFormat::Png)?;

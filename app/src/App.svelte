@@ -1,30 +1,83 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStatus, onStatus, openConfig, resend, setPaused, simulate } from './lib/api';
-  import Deck from './lib/Deck.svelte';
+  import { getConfig, getStatus, glyphs as loadGlyphs, onStatus, openConfig, resend, saveConfig, setPaused, simulate } from './lib/api';
   import Icon from './lib/Icon.svelte';
-  import Simulator from './lib/Simulator.svelte';
-  import { modeName, type Status } from './lib/types';
+  import LayerEditor from './lib/LayerEditor.svelte';
+  import Live from './lib/Live.svelte';
+  import NewRule from './lib/NewRule.svelte';
+  import Settings from './lib/Settings.svelte';
+  import { modeName, ruleTarget, type Config, type Rule, type Status } from './lib/types';
+
+  type View = { kind: 'live' } | { kind: 'default' } | { kind: 'rule'; index: number } | { kind: 'new' } | { kind: 'settings' };
 
   let status = $state<Status | null>(null);
-  let selected = $state(1);
+  let config = $state<Config | null>(null);
+  let loadError = $state<string | null>(null);
+  let saveError = $state<string | null>(null);
+  let glyphs = $state<string[]>([]);
+  let view = $state<View>({ kind: 'live' });
+
+  // Autosave bookkeeping: what the file holds, and when the person last edited.
+  let lastSaved = '';
+  let lastEdit = 0;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let seenRevision = -1;
+
+  async function loadConfig() {
+    try {
+      const loaded = await getConfig();
+      lastSaved = JSON.stringify(loaded);
+      config = loaded;
+      loadError = null;
+    } catch (e) {
+      loadError = String(e);
+    }
+  }
 
   onMount(() => {
     getStatus().then((s) => (status = s));
     const stop = onStatus((s) => (status = s));
+    loadGlyphs().then((g) => (glyphs = g));
+    loadConfig();
     return () => {
       stop.then((unlisten) => unlisten());
     };
   });
 
-  const key = $derived(status?.keys.find((k) => k.number === selected) ?? null);
-  const active = $derived(status?.rules.filter((r) => r.active) ?? []);
-  const disputes = $derived(status?.keys.filter((k) => k.beaten.length > 0) ?? []);
-  const focusedText = $derived.by(() => {
-    if (!status?.focused) return 'nada';
-    return status.focused_site ? `${status.focused} · ${status.focused_site}` : status.focused;
+  // Every edit is validated and written shortly after the last keystroke.
+  $effect(() => {
+    if (!config) return;
+    const json = JSON.stringify($state.snapshot(config));
+    if (json === lastSaved) return;
+    lastEdit = Date.now();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await saveConfig(JSON.parse(json));
+        lastSaved = json;
+        saveError = null;
+      } catch (e) {
+        saveError = String(e);
+      }
+    }, 350);
   });
-  const position = (n: number) => (n === 14 ? 'Visor' : `Linha ${Math.ceil(n / 5)} · coluna ${((n - 1) % 5) + 1}`);
+
+  // Someone edited config.json by hand: reload it, unless it is our own save.
+  $effect(() => {
+    const revision = status?.config_revision;
+    if (revision === undefined || revision === seenRevision) return;
+    seenRevision = revision;
+    if (Date.now() - lastEdit > 1500) loadConfig();
+  });
+
+  function createRule(rule: Rule) {
+    if (!config) return;
+    config.rules.push(rule);
+    view = { kind: 'rule', index: config.rules.length - 1 };
+  }
+
+  const isView = (kind: View['kind'], index?: number) =>
+    view.kind === kind && (index === undefined || (view.kind === 'rule' && view.index === index));
 </script>
 
 {#if status}
@@ -40,13 +93,19 @@
         <Icon name={status.paused ? 'play' : 'pause'} size={16} />{status.paused ? 'Retomar regras' : 'Pausar regras'}
       </button>
       <button type="button" class="tool" onclick={() => resend()}><Icon name="refresh" size={16} />Reenviar</button>
-      <button type="button" class="tool" onclick={() => openConfig()}><Icon name="file" size={16} />Editar config</button>
     </header>
 
     {#if status.config_error}
       <div class="banner error" role="alert">
         <Icon name="alert" />
-        <span><strong>A config tem um erro e não foi aplicada.</strong> {status.config_error}</span>
+        <span><strong>O config.json tem um erro e não foi aplicado.</strong> {status.config_error}</span>
+        <button type="button" class="secondary" onclick={() => openConfig()}>Abrir config.json</button>
+      </div>
+    {/if}
+    {#if saveError}
+      <div class="banner error" role="alert">
+        <Icon name="alert" />
+        <span><strong>Mudança ainda não salva:</strong> {saveError}</span>
       </div>
     {/if}
     {#if status.simulation}
@@ -59,90 +118,79 @@
 
     <div class="body">
       <nav aria-label="Seções">
-        <span class="nav-item current" aria-current="page"><Icon name="live" />Ao vivo</span>
-        <div class="nav-title">Regras</div>
-        {#if status.rules.length === 0}
-          <p class="muted small nav-note">Nenhuma regra ainda. Use "Editar config" para criar.</p>
-        {/if}
-        <ul>
-          {#each status.rules as rule, i (i)}
-            <li class:disabled={!rule.enabled}>
-              <Icon name={rule.kind} />
-              <span class="rule-text">
+        <button type="button" class="nav-item" aria-current={isView('live') ? 'page' : undefined} onclick={() => (view = { kind: 'live' })}>
+          <Icon name="live" />
+          <span class="nav-text"><span>Ao vivo</span><span class="muted small">o que o D200 mostra agora</span></span>
+        </button>
+        <button type="button" class="nav-item" aria-current={isView('default') ? 'page' : undefined} onclick={() => (view = { kind: 'default' })}>
+          <Icon name="grid" />
+          <span class="nav-text"><span>Layout padrão</span><span class="muted small">quando nenhuma regra vale</span></span>
+        </button>
+
+        <div class="nav-title">
+          <span>Regras</span>
+          <button type="button" class="new" aria-current={isView('new') ? 'page' : undefined} onclick={() => (view = { kind: 'new' })}>
+            <Icon name="plus" size={14} />Nova
+          </button>
+        </div>
+        {#if config}
+          {#if config.rules.length === 0}
+            <p class="muted small nav-note">Nenhuma regra ainda. Crie a primeira em "Nova".</p>
+          {/if}
+          {#each config.rules as rule, i (i)}
+            {@const target = ruleTarget(rule)}
+            <button
+              type="button"
+              class="nav-item rule"
+              class:disabled={!rule.enabled}
+              aria-current={isView('rule', i) ? 'page' : undefined}
+              onclick={() => (view = { kind: 'rule', index: i })}
+            >
+              <Icon name={target.kind} />
+              <span class="nav-text">
                 <span class="rule-name">
-                  {rule.name}
-                  {#if rule.active}<span class="valid"><span class="led"></span>valendo</span>{/if}
+                  {rule.name || 'Sem nome'}
+                  {#if status.rules[i]?.active}<span class="valid"><span class="led"></span>valendo</span>{/if}
                 </span>
-                <span class="mono muted ellipsis">{rule.target}</span>
+                <span class="mono muted ellipsis">{target.target}</span>
               </span>
               <span class="badge" class:focus={rule.mode === 'focus'}>{modeName(rule.mode)}</span>
-            </li>
+            </button>
           {/each}
-        </ul>
+        {/if}
+
         <div class="spacer"></div>
-        <p class="muted small nav-note mono ellipsis" title={status.config_path}>{status.config_path}</p>
+        <button type="button" class="nav-item" aria-current={isView('settings') ? 'page' : undefined} onclick={() => (view = { kind: 'settings' })}>
+          <Icon name="file" /><span>Ajustes</span>
+        </button>
       </nav>
 
-      <main>
-        <div>
-          <h1>Ao vivo</h1>
-          <p class="muted">O que o D200 está mostrando agora. O ponto marca as teclas trocadas por uma regra.</p>
+      {#if view.kind === 'live'}
+        <Live {status} />
+      {:else if !config}
+        <div class="page">
+          <h1>Não deu para abrir a configuração</h1>
+          <p class="muted">{loadError ?? 'Carregando…'}</p>
+          <div><button type="button" class="secondary" onclick={() => openConfig()}>Abrir config.json</button></div>
         </div>
-        <div class="chips">
-          <span class="chip"><span class="muted">Em foco</span><span class="mono">{focusedText}</span></span>
-          <span class="chip"><span class="muted">Abertos</span><span class="mono">{status.open.join(', ') || 'nenhum com regra'}</span></span>
-        </div>
-
-        <Deck keys={status.keys} {selected} window={status.window} onselect={(n) => (selected = n)} />
-
-        <div class="cards">
-          <Simulator rules={status.rules} simulation={status.simulation} onchange={(s) => simulate(s)} />
-          <section class="card">
-            <h2>Regras valendo agora</h2>
-            {#if status.paused}
-              <p class="muted">Regras pausadas: o D200 está no layout padrão.</p>
-            {:else if active.length === 0}
-              <p class="muted">Nenhuma. O D200 está no layout padrão.</p>
-            {/if}
-            {#each active as rule (rule.name + rule.mode)}
-              <div class="active-row">
-                <span class="grow">{rule.name}</span>
-                <span class="badge" class:focus={rule.mode === 'focus'}>{modeName(rule.mode)}</span>
-              </div>
-            {/each}
-            {#if disputes.length > 0}
-              <div class="disputes">
-                <h3>Disputas</h3>
-                {#each disputes as k (k.number)}
-                  <p class="small">Tecla {k.number}: {k.rule} venceu {k.beaten.join(', ')}.</p>
-                {/each}
-              </div>
-            {/if}
-            <p class="muted small push">Foco ganha de aberto. Entre regras do mesmo modo, vence a que estiver mais abaixo na lista.</p>
-          </section>
-        </div>
-      </main>
-
-      <aside aria-label="Tecla selecionada">
-        {#if key}
-          <div>
-            <div class="muted small">{position(key.number)}</div>
-            <h2>Tecla {key.number}</h2>
-          </div>
-          {#if key.image}<img class="preview" src={key.image} alt={`Imagem da tecla ${key.number}`} />{/if}
-          <div class="facts">
-            <div><div class="muted small">Texto</div><div>{key.label || '—'}</div></div>
-            <div>
-              <div class="muted small">Vem de</div>
-              <div>{key.rule ? `${key.rule} · ${modeName(key.mode!)}` : 'Layout padrão'}</div>
-            </div>
-            <div><div class="muted small">Ao apertar</div><div class="mono">{key.action ?? 'Nenhuma ação'}</div></div>
-            {#if key.beaten.length > 0}
-              <div><div class="muted small">Também queriam esta tecla</div><div>{key.beaten.join(', ')}</div></div>
-            {/if}
-          </div>
-        {/if}
-      </aside>
+      {:else if view.kind === 'default'}
+        <LayerEditor bind:config index={null} active={false} {glyphs} onmoved={() => {}} ondeleted={() => {}} />
+      {:else if view.kind === 'rule' && config.rules[view.index]}
+        {#key view.index}
+          <LayerEditor
+            bind:config
+            index={view.index}
+            active={status.rules[view.index]?.active ?? false}
+            {glyphs}
+            onmoved={(to) => (view = { kind: 'rule', index: to })}
+            ondeleted={() => (view = { kind: 'live' })}
+          />
+        {/key}
+      {:else if view.kind === 'new'}
+        <NewRule edgeTabs={status.edge_tabs} oncreate={createRule} oncancel={() => (view = { kind: 'live' })} />
+      {:else if view.kind === 'settings'}
+        <Settings bind:config configPath={status.config_path} />
+      {/if}
     </div>
   </div>
 {/if}
@@ -168,7 +216,6 @@
     gap: 10px;
     font-weight: 600;
     font-size: 15px;
-    color: var(--text);
   }
   .brand :global(.ico) {
     color: var(--accent);
@@ -233,20 +280,40 @@
     border-right: 1px solid var(--line-soft);
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
   }
   .nav-item {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
     padding: 9px 10px;
+    border: 0;
     border-radius: 10px;
-    font-weight: 500;
+    background: transparent;
+    color: var(--soft);
+    text-align: left;
   }
-  .nav-item.current {
+  .nav-item:hover {
+    background: #1b1c20;
+  }
+  .nav-item[aria-current='page'] {
     background: var(--key);
+    color: var(--text);
+  }
+  .nav-item.disabled {
+    opacity: 0.55;
+  }
+  .nav-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1 1 auto;
   }
   .nav-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 18px 10px 6px;
     font-size: 12px;
     font-weight: 600;
@@ -254,33 +321,25 @@
     text-transform: uppercase;
     color: var(--muted);
   }
-  .nav-note {
-    padding: 0 10px;
-  }
-  ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  li {
+  .new {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 9px 10px;
-    border-radius: 10px;
-    color: var(--soft);
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: transparent;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text);
   }
-  li.disabled {
-    opacity: 0.5;
+  .new[aria-current='page'] {
+    border-color: var(--accent);
   }
-  .rule-text {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    flex: 1 1 auto;
+  .nav-note {
+    padding: 0 10px;
   }
   .rule-name {
     display: flex;
@@ -306,91 +365,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  main {
-    flex: 999 1 520px;
-    min-width: 0;
-    padding: 24px 28px 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-  h1 {
-    font-size: 22px;
-    font-weight: 600;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .chip {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    padding: 5px 12px;
-    border-radius: 999px;
-    background: var(--surface);
-    border: 1px solid #2e3036;
-    font-size: 13px;
-  }
-  .cards {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-  }
-  .active-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-  .grow {
-    flex: 1 1 auto;
-    font-weight: 500;
-  }
-  .disputes {
-    border-top: 1px solid var(--line-soft);
-    padding-top: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .disputes h3 {
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .push {
-    margin-top: auto;
-  }
-  aside {
-    flex: 1 1 280px;
-    max-width: 340px;
-    padding: 24px 20px;
-    background: var(--panel);
-    border-left: 1px solid var(--line-soft);
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-  }
-  aside h2 {
-    font-size: 18px;
-    font-weight: 600;
-  }
-  .preview {
-    width: 120px;
-    height: 120px;
-    border-radius: 14px;
-    border: 1px solid var(--line);
-  }
-  .facts {
+  .page {
+    flex: 999 1 640px;
+    padding: 28px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 14px;
-    background: var(--surface);
-    border: 1px solid #2e3036;
-    border-radius: 12px;
   }
 </style>

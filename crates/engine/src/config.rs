@@ -213,8 +213,17 @@ impl Config {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, serde_json::to_string_pretty(self)? + "\n")?;
+        // Write beside the file and rename over it, so the engine watching
+        // the file never reads half of it.
+        let temp = path.with_extension("json.tmp");
+        std::fs::write(&temp, serde_json::to_string_pretty(self)? + "\n")?;
+        std::fs::rename(&temp, path)?;
         Ok(())
+    }
+
+    /// The folder relative icon paths start from.
+    pub fn dir_of(path: &Path) -> PathBuf {
+        path.parent().unwrap_or(Path::new(".")).to_path_buf()
     }
 
     pub fn validate(&self) -> Result<()> {

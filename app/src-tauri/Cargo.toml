@@ -12,6 +12,8 @@ tauri-build = { version = "2", features = [] }
 deck-engine = { path = "../../crates/engine" }
 env_logger = "0.11"
 log = "0.4"
+serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"

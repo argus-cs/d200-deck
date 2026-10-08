@@ -12,7 +12,6 @@ use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
-use base64::Engine as _;
 use d200::device::D200;
 use d200::layout::KeyView;
 use d200::protocol::{Incoming, WindowMode, KEY_COUNT};
@@ -52,6 +51,8 @@ pub enum Command {
     Resend,
     /// Replaces the real context until `Simulate(None)`.
     Simulate(Option<Simulation>),
+    /// Reads config.json now instead of at the next poll.
+    Reload,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -59,6 +60,8 @@ pub struct Status {
     pub config_path: String,
     /// Why the config file was not applied, when it has an error.
     pub config_error: Option<String>,
+    /// Goes up each time config.json is applied, so editors know to reload it.
+    pub config_revision: u64,
     pub device: bool,
     pub extension: bool,
     pub paused: bool,
@@ -70,6 +73,8 @@ pub struct Status {
     pub focused_site: Option<String>,
     /// Watched apps that are running and sites that have a tab open.
     pub open: Vec<String>,
+    /// Domains of every tab open in Edge (real, never simulated).
+    pub edge_tabs: Vec<String>,
     pub rules: Vec<RuleStatus>,
     /// Keys 1 to 14, 14 being the status window.
     pub keys: Vec<KeyStatus>,
@@ -128,6 +133,7 @@ struct State {
     config_path: PathBuf,
     config: Config,
     config_error: Option<String>,
+    config_revision: u64,
     modified: Option<SystemTime>,
     commands: Receiver<Command>,
     on_status: Box<dyn Fn(&Status) + Send>,
@@ -174,6 +180,7 @@ impl State {
             config_path,
             config,
             config_error,
+            config_revision: 0,
             commands,
             on_status,
             foreground: watch_foreground(),
@@ -324,6 +331,11 @@ impl State {
                     }
                     self.simulation = simulation;
                     self.apply_rules(device)?;
+                }
+                Command::Reload => {
+                    self.modified = None;
+                    self.reload_if_changed(device)?;
+                    self.last_config = Instant::now();
                 }
             }
             self.status_dirty = true;
@@ -480,6 +492,7 @@ impl State {
             }
         };
         self.config_error = None;
+        self.config_revision += 1;
         let old = std::mem::replace(&mut self.config, config);
         info!("config recarregada");
         // A PNG may have changed on disk under the same name.
@@ -547,7 +560,7 @@ impl State {
     }
 
     fn config_base(&self) -> PathBuf {
-        self.config_path.parent().unwrap_or(Path::new(".")).to_path_buf()
+        Config::dir_of(&self.config_path)
     }
 
     fn publish(&mut self) {
@@ -609,7 +622,7 @@ impl State {
                     .unwrap_or_default();
                 let image = slot
                     .and_then(|s| cached_icon(&mut self.icons, &s.key, &base, number as usize))
-                    .map(|png| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)));
+                    .map(|png| icons::data_url(&png));
                 let rule = slot.and_then(|s| s.rule).map(|i| &self.config.rules[i]);
                 KeyStatus {
                     number,
@@ -622,9 +635,14 @@ impl State {
                 }
             })
             .collect();
+        let mut edge_tabs: Vec<String> = self.context.tabs.open.iter().filter_map(|t| host_of(&t.url)).collect();
+        edge_tabs.sort();
+        edge_tabs.dedup();
         Status {
             config_path: self.config_path.display().to_string(),
             config_error: self.config_error.clone(),
+            config_revision: self.config_revision,
+            edge_tabs,
             device: self.device,
             extension: self.extension,
             paused: self.paused,

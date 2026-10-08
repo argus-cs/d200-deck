@@ -36,7 +36,12 @@ pub fn watch_foreground() -> Receiver<Option<String>> {
 }
 
 #[cfg(windows)]
-pub use win::{bring_to_front, give_back};
+pub use win::{bring_to_front, give_back, visible_apps};
+
+#[cfg(not(windows))]
+pub fn visible_apps() -> Vec<(String, String)> {
+    Vec::new()
+}
 
 #[cfg(windows)]
 mod win {
@@ -56,8 +61,8 @@ mod win {
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, DispatchMessageW, EnumWindows, GetForegroundWindow, GetMessageW, GetWindow,
-        GetWindowTextLengthW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow,
-        EVENT_SYSTEM_FOREGROUND, GW_OWNER, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT,
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        SetForegroundWindow, ShowWindow, EVENT_SYSTEM_FOREGROUND, GW_OWNER, MSG, SW_RESTORE, WINEVENT_OUTOFCONTEXT,
     };
 
     static FOREGROUND: OnceLock<Sender<Option<String>>> = OnceLock::new();
@@ -88,6 +93,11 @@ mod win {
     }
 
     fn process_of(hwnd: HWND) -> Option<String> {
+        exe_name(hwnd).map(|name| name.to_ascii_lowercase())
+    }
+
+    /// The exe file name of the window's process, as spelled on disk.
+    fn exe_name(hwnd: HWND) -> Option<String> {
         if hwnd.is_invalid() {
             return None;
         }
@@ -104,8 +114,40 @@ mod win {
             let _ = CloseHandle(handle);
             result.ok()?;
             let path = String::from_utf16_lossy(&buf[..len as usize]);
-            path.rsplit('\\').next().map(str::to_ascii_lowercase)
+            path.rsplit('\\').next().map(str::to_string)
         }
+    }
+
+    /// A top-level window a person would call "the app": visible, titled, not a dialog of another window.
+    fn is_app_window(hwnd: HWND) -> bool {
+        unsafe {
+            let owned = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid());
+            IsWindowVisible(hwnd).as_bool() && !owned && GetWindowTextLengthW(hwnd) > 0
+        }
+    }
+
+    unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        let apps = &mut *(lparam.0 as *mut Vec<(String, String)>);
+        if is_app_window(hwnd) {
+            if let Some(exe) = exe_name(hwnd) {
+                let mut buf = [0u16; 512];
+                let len = GetWindowTextW(hwnd, &mut buf).max(0) as usize;
+                let title = String::from_utf16_lossy(&buf[..len]);
+                if !apps.iter().any(|(known, _)| known.eq_ignore_ascii_case(&exe)) {
+                    apps.push((exe, title));
+                }
+            }
+        }
+        BOOL(1)
+    }
+
+    /// Apps with a window open now, front to back: (exe name, window title).
+    pub fn visible_apps() -> Vec<(String, String)> {
+        let mut apps: Vec<(String, String)> = Vec::new();
+        unsafe {
+            let _ = EnumWindows(Some(collect_window), LPARAM(&mut apps as *mut _ as isize));
+        }
+        apps
     }
 
     struct Search<'a> {
@@ -115,12 +157,7 @@ mod win {
 
     unsafe extern "system" fn match_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
         let search = &mut *(lparam.0 as *mut Search);
-        let owned = GetWindow(hwnd, GW_OWNER).is_ok_and(|owner| !owner.is_invalid());
-        if IsWindowVisible(hwnd).as_bool()
-            && !owned
-            && GetWindowTextLengthW(hwnd) > 0
-            && process_of(hwnd).as_deref() == Some(search.process)
-        {
+        if is_app_window(hwnd) && process_of(hwnd).as_deref() == Some(search.process) {
             search.found = Some(hwnd);
             return BOOL(0);
         }

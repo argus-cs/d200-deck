@@ -14,7 +14,7 @@ use zip::{CompressionMethod, ZipWriter};
 
 use crate::protocol::{COLS, PACKET_SIZE, PAYLOAD_SIZE};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct KeyView {
     pub text: String,
     /// 196×196 PNG; `None` leaves the key without an image.

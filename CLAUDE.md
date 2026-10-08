@@ -11,6 +11,8 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 ## Estrutura
 - `crates/d200/` — driver do protocolo (`protocol.rs`: pacotes; `layout.rs`: zip de layout; `device.rs`: acesso HID).
 - `crates/d200/src/bin/probe.rs` — ferramenta de validação da Fase 0.
+- `crates/engine/` — motor reaproveitado pelo app Tauri: `config.rs` (JSON em `%APPDATA%\D200Deck\config.json`, teclas numeradas de 1 a 14), `icons.rs` (ícones de traço do protótipo via resvg, ou PNG do usuário), `actions.rs` (atalho, abrir, comando, texto, mídia), `runtime.rs` (conexão, keep-alive de 1 s, recarga da config enviando só as teclas mudadas, reconexão).
+- `crates/engine/src/bin/deckd.rs` — o app sem interface.
 
 ## Comandos
 O Rust fica em `%USERPROFILE%\.cargo\bin`, que pode não estar no PATH do shell.
@@ -18,6 +20,7 @@ O Rust fica em `%USERPROFILE%\.cargo\bin`, que pode não estar no PATH do shell.
 cargo test -p d200
 cargo run -p d200 --bin probe -- list
 cargo run -p d200 --bin probe -- test
+cargo run -p deck-engine --bin deckd
 ```
 Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 
@@ -43,3 +46,5 @@ Referências: redphx/strmdck (MIT) e glmagalhaes.mail/rs-ulanzi-d-200-linux (Git
 ## Regras
 - Não atualizar o firmware pelo Ulanzi Studio sem retestar o protocolo.
 - Atalhos simulados não chegam a apps rodando como administrador.
+- Ação "abrir": nomes sem pasta (`wt.exe`, `notepad.exe`) são procurados no PATH antes do `ShellExecuteExW` (`actions::find_in_path`). Passando só o nome, o Windows consulta o registro App Paths, onde a Store aponta para o `.exe` dentro de `WindowsApps`; aberto por ali, o app da Store nasce fora do pacote (o Terminal não abre, o Bloco de notas acusa DLL faltando). O `SEE_MASK_NOASYNC` também é necessário, porque a ação roda numa thread que termina logo.
+- `cargo run -p deck-engine --bin try-open -- <alvo>` testa a ação "abrir" isolada.

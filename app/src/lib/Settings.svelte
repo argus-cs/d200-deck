@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { openConfig } from './api';
+  import { getVersion } from '@tauri-apps/api/app';
+  import { checkUpdate, openConfig } from './api';
   import ColorPicker from './ColorPicker.svelte';
   import type { Config } from './types';
 
@@ -7,6 +8,25 @@
 
   // config.json keeps the label color as hex without "#".
   const labelColor = $derived(`#${config.label.color}`);
+
+  let version = $state('');
+  let checking = $state(false);
+  let answer = $state<string | null>(null);
+  getVersion().then((v) => (version = v));
+
+  /** A version found shows at the top of the window, with its button. */
+  async function lookForUpdate() {
+    checking = true;
+    answer = null;
+    try {
+      const found = await checkUpdate();
+      answer = found ? `A versão ${found.version} está disponível: use o aviso no topo da janela.` : 'Você já tem a versão mais nova.';
+    } catch (e) {
+      answer = `Não deu para procurar agora: ${e}`;
+    } finally {
+      checking = false;
+    }
+  }
 </script>
 
 <div class="page scroll">
@@ -41,6 +61,20 @@
     <p class="mono muted small">{configPath}</p>
     <p class="muted small">Tudo o que você muda aqui é gravado nesse arquivo. Ele também pode ser editado à mão; o app percebe e aplica.</p>
     <div><button type="button" class="secondary" onclick={() => openConfig()}>Abrir config.json</button></div>
+  </section>
+
+  <section class="card">
+    <h2>Atualizações</h2>
+    <p>Versão instalada: <span class="mono">{version || '…'}</span></p>
+    <p class="muted small">
+      O app procura uma versão nova ao abrir e a cada 6 horas, e só atualiza quando você manda (aqui, no aviso do topo ou no menu da bandeja).
+    </p>
+    <div class="row">
+      <button type="button" class="secondary" disabled={checking} onclick={lookForUpdate}>
+        {checking ? 'Procurando…' : 'Procurar atualizações'}
+      </button>
+      {#if answer}<span class="small">{answer}</span>{/if}
+    </div>
   </section>
 
   <p class="muted small">Para iniciar com o Windows, use o menu do ícone na bandeja. O tema claro ou escuro segue o do Windows.</p>
@@ -90,5 +124,11 @@
   }
   .check input {
     accent-color: var(--accent);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
   }
 </style>

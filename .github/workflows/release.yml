@@ -1,0 +1,78 @@
+# Builds the Windows installer. A "v*" tag (v0.2.0) drafts a GitHub release
+# with the installer and the latest.json the in-app updater reads; installed
+# apps only see the new version once the draft is published.
+# Run by hand (Actions → Release → Run workflow) it only builds, and keeps
+# the installer as a workflow artifact.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the app version
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $tauri = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $npm = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($tauri -ne $tag -or $npm -ne $tag -or $cargo -ne $tag) {
+            Write-Error "A tag v$tag não bate com as versões: tauri.conf.json $tauri, package.json $npm, Cargo.toml $cargo"
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the frontend packages
+        working-directory: app
+        run: npm ci
+
+      - name: Test the driver and the engine
+        run: cargo test -p d200 -p deck-engine
+
+      - name: Check the frontend types
+        working-directory: app
+        run: npm run check
+
+      - name: Build, and draft the release on a tag
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signs the installer for the updater (see CLAUDE.md, "Versões e atualizações").
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          # Empty on manual runs: build only, no release.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: D200 Deck __VERSION__
+          releaseBody: Escreva as notas desta versão antes de publicar.
+          releaseDraft: true
+
+      - name: Keep the installer (manual runs)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: d200-deck-installer
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.sig

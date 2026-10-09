@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod tray;
+mod update;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -296,7 +297,9 @@ fn main() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_FLAG])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(window_state_flags()).build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(DeckState::default())
+        .manage(update::Updates::default())
         .setup(move |app| {
             let handle = app.handle().clone();
             let activity_handle = app.handle().clone();
@@ -313,6 +316,7 @@ fn main() {
             );
             let _ = app.state::<DeckState>().engine.set(engine);
             tray::build(app.handle())?;
+            update::start(app.handle());
             if !hidden {
                 show_window(app.handle());
             }
@@ -339,7 +343,10 @@ fn main() {
             site_icon,
             extension_folder,
             open_extension_folder,
-            open_edge_extensions
+            open_edge_extensions,
+            update::get_update,
+            update::check_update,
+            update::install_update
         ])
         .build(tauri::generate_context!())
         .expect("o D200 Deck não iniciou");

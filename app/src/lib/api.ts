@@ -24,6 +24,22 @@ export const pickAppIcon = () => invoke<string | null>('pick_app_icon');
 export const siteIcon = (url: string, host: string) => invoke<string>('site_icon', { url, host });
 export const renderScreen = (screen: Screen) => invoke<string | null>('render_screen', { screen });
 
+/** A newer version found on GitHub. */
+export interface Update {
+  version: string;
+  notes: string | null;
+}
+
+export const getUpdate = () => invoke<Update | null>('get_update');
+export const checkUpdate = () => invoke<Update | null>('check_update');
+/** Downloads and installs; the app closes and opens again in the new version. */
+export const installUpdate = () => invoke('install_update');
+export const onUpdate = (handler: (update: Update | null) => void) =>
+  listen<Update | null>('update', (event) => handler(event.payload));
+/** Download progress in percent (null while the size is unknown). */
+export const onUpdateProgress = (handler: (percent: number | null) => void) =>
+  listen<number | null>('update-progress', (event) => handler(event.payload));
+
 export const extensionFolder = () => invoke<string>('extension_folder');
 export const openExtensionFolder = () => invoke('open_extension_folder');
 export const openEdgeExtensions = () => invoke('open_edge_extensions');

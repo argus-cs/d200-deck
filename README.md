@@ -19,6 +19,7 @@ App para Windows que substitui o Ulanzi Studio no **Ulanzi D200**. As teclas mud
 - **Teclas "abrir app"** ficam escurecidas enquanto o app está fechado.
 - **Visor (tecla 14):** relógio, uso do PC (CPU, memória, GPU e rede), agora tocando com a capa, cronômetro ou Pomodoro, texto ou imagem. Cada regra pode ter o seu. Tocar executa uma ação, e segurar executa outra ou alterna o que o visor mostra.
 - **Interface:** D200 ao vivo, editor com arrastar e soltar, copiar e colar teclas, desfazer e refazer, tema claro ou escuro. O app fica na bandeja e pode iniciar com o Windows.
+- **Atualizações:** a partir da 0.2.0, o app avisa quando sai uma versão nova e se atualiza quando você manda (no aviso da janela, nos Ajustes ou na bandeja).
 
 ## Requisitos
 
@@ -39,6 +40,14 @@ npx tauri build --debug --no-bundle    # só o executável, em target/debug/d200
 ```
 
 Fechar a janela deixa o app rodando na bandeja; para encerrar, use **Sair** no menu da bandeja. O executável não pode ser substituído com o app aberto.
+
+O `tauri build` assina o instalador para as atualizações e precisa da chave privada nas variáveis `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Sem ela, use `npx tauri build --debug --no-bundle`.
+
+## Publicar uma versão
+
+1. Num PR, suba a versão em `Cargo.toml`, `app/src-tauri/tauri.conf.json` e `app/package.json` (`npm version X.Y.Z --no-git-tag-version` na pasta `app`).
+2. Depois do merge, crie a tag na `main`: `git tag vX.Y.Z` e `git push origin vX.Y.Z`.
+3. O GitHub Actions gera o instalador e cria o release como rascunho. Escreva as notas e publique: os apps instalados passam a oferecer a atualização.
 
 ## Extensão do Edge (regras de site)
 

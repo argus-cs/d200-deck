@@ -1,4 +1,7 @@
-// Notification-area icon: status, open, pause rules, resend, start with Windows, quit.
+// Notification-area icon: status, open, pause rules, resend, start with
+// Windows, updates, quit.
+
+use std::time::Duration;
 
 use deck_engine::runtime::{Command, Status};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
@@ -6,9 +9,10 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::{show_window, DeckState};
+use crate::{show_window, update, DeckState};
 
 const TRAY_ID: &str = "main";
+const LOOK_FOR_UPDATES: &str = "Procurar atualizações";
 
 /// Menu items whose text or check mark follows the engine.
 struct TrayItems {
@@ -16,6 +20,8 @@ struct TrayItems {
     rules: MenuItem<Wry>,
     pause: CheckMenuItem<Wry>,
     autostart: CheckMenuItem<Wry>,
+    /// "Look for updates", or "Update to x.y.z" once one was found.
+    update: MenuItem<Wry>,
 }
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
@@ -26,10 +32,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let resend = MenuItem::with_id(app, "resend", "Reenviar layout para o D200", true, None::<&str>)?;
     let starts_with_windows = app.autolaunch().is_enabled().unwrap_or(false);
     let autostart = CheckMenuItem::with_id(app, "autostart", "Iniciar com o Windows", true, starts_with_windows, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", LOOK_FOR_UPDATES, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&device, &rules, &sep1, &open, &pause, &resend, &autostart, &sep2, &quit])?;
+    let menu =
+        Menu::with_items(app, &[&device, &rules, &sep1, &open, &pause, &resend, &autostart, &update, &sep2, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("D200 Deck")
@@ -46,6 +54,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             }
             "resend" => app.state::<DeckState>().send(Command::Resend),
             "autostart" => toggle_autostart(app),
+            "update" => update_clicked(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -58,8 +67,52 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon);
     }
     builder.build(app)?;
-    app.manage(TrayItems { device, rules, pause, autostart });
+    app.manage(TrayItems { device, rules, pause, autostart, update });
     Ok(())
+}
+
+/// Installs the version already found, or looks for one and says so.
+fn update_clicked(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if update::get_update(app.state()).is_some() {
+            if let Err(e) = tauri::async_runtime::block_on(update::install(&app)) {
+                log::warn!("a atualização falhou: {e}");
+                set_update_text(&app, "A atualização falhou: tentar de novo");
+            }
+            return;
+        }
+        set_update_text(&app, "Procurando atualizações…");
+        let text = match tauri::async_runtime::block_on(update::check(&app)) {
+            // `check` already put "Update to…" in the menu.
+            Ok(Some(_)) => return,
+            Ok(None) => format!("Nenhuma versão nova (você tem a {})", app.package_info().version),
+            Err(e) => {
+                log::warn!("não deu para procurar atualização: {e}");
+                "Sem conexão com o GitHub".to_string()
+            }
+        };
+        set_update_text(&app, &text);
+        // The answer stays a moment, then the item can be used again.
+        std::thread::sleep(Duration::from_secs(5));
+        if update::get_update(app.state()).is_none() {
+            set_update_text(&app, LOOK_FOR_UPDATES);
+        }
+    });
+}
+
+fn set_update_text(app: &AppHandle, text: &str) {
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.update.set_text(text);
+    }
+}
+
+/// Puts the version found, if any, in the menu.
+pub fn show_update(app: &AppHandle, version: Option<&str>) {
+    match version {
+        Some(version) => set_update_text(app, &format!("Atualizar para {version} e reiniciar")),
+        None => set_update_text(app, LOOK_FOR_UPDATES),
+    }
 }
 
 fn toggle_autostart(app: &AppHandle) {

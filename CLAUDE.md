@@ -45,6 +45,13 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - Uma pasta aberta fica até ser fechada, mesmo que a regra dela deixe de valer; ela é achada de novo pelo nome da regra a cada recarga da config.
 - `cargo run -p deck-engine --bin try-system -- state` lê todos os ajustes; `-- set <ajuste> [toggle|on|off] [valor]` aplica um (muda o PC de verdade); `-- outputs` lista as saídas de áudio.
 
+## Versões e atualizações
+- A versão fica em três lugares que precisam bater: `Cargo.toml` (raiz, `workspace.package`), `app/src-tauri/tauri.conf.json` e `app/package.json` (`npm version X.Y.Z --no-git-tag-version` atualiza o `package-lock.json` junto). A extensão do Edge tem a versão dela.
+- Release: subir a versão num PR → merge → `git tag vX.Y.Z` na `main` e `git push origin vX.Y.Z`. O `.github/workflows/release.yml` (Windows) confere a tag contra as três versões, roda os testes, gera o instalador assinado e cria o release como **rascunho** com `latest.json`. Escrever as notas (em português, para quem usa) e publicar: só então os apps instalados enxergam a versão nova. Rodar o workflow à mão só gera o instalador como artefato.
+- Atualização no app (`app/src-tauri/src/update.rs`, `tauri-plugin-updater`): procura 20 s depois de abrir e a cada 6 h em `https://github.com/argus-cs/d200-deck/releases/latest/download/latest.json` (por isso o repositório é público). Achou: aviso no topo da janela e "Atualizar para X e reiniciar" na bandeja; só instala quando a pessoa manda. No Windows o instalador (modo `passive`) fecha o app e abre de novo com os mesmos argumentos.
+- **Chave de assinatura:** a privada fica em `%USERPROFILE%\.tauri\d200-deck.key` (senha em `d200-deck.password`) e nos secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` do GitHub; a pública está em `tauri.conf.json` (`plugins.updater.pubkey`). **Sem a privada, os apps instalados não aceitam mais atualizações**: manter cópia fora deste PC. Build local assinado: `TAURI_SIGNING_PRIVATE_KEY=<caminho> TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<senha> npx tauri build`.
+- O `generate_context!` precisa do crate `serde_json` no app quando o `tauri.conf.json` tem `plugins`.
+
 ## Interface (depois da Fase 5)
 - Janela sem moldura (`decorations(false)`), barra de título própria com `data-tauri-drag-region`; posição/tamanho lembrados por `tauri-plugin-window-state`.
 - `disable_drag_drop_handler()` é necessário para o arrastar e soltar do HTML funcionar no Windows.

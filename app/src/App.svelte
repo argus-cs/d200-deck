@@ -1,7 +1,22 @@
 <script lang="ts">
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
-  import { getConfig, getStatus, glyphs as loadGlyphs, onStatus, openConfig, resend, saveConfig, setPaused, simulate } from './lib/api';
+  import {
+    getConfig,
+    getStatus,
+    getUpdate,
+    glyphs as loadGlyphs,
+    installUpdate,
+    onStatus,
+    onUpdate,
+    onUpdateProgress,
+    openConfig,
+    resend,
+    saveConfig,
+    setPaused,
+    simulate,
+    type Update,
+  } from './lib/api';
   import Icon from './lib/Icon.svelte';
   import LayerEditor from './lib/LayerEditor.svelte';
   import Live from './lib/Live.svelte';
@@ -27,6 +42,11 @@
   let maximized = $state(false);
   let canUndo = $state(false);
   let canRedo = $state(false);
+  /** A newer version found on GitHub, and how far its download is. */
+  let update = $state<Update | null>(null);
+  let installing = $state(false);
+  let downloaded = $state<number | null>(null);
+  let updateError = $state<string | null>(null);
 
   // What the file holds, what the editors last showed, and the history between them.
   let lastSaved = '';
@@ -66,11 +86,29 @@
     loadConfig();
     appWindow.isMaximized().then((m) => (maximized = m));
     const stopResize = appWindow.onResized(async () => (maximized = await appWindow.isMaximized()));
+    getUpdate().then((u) => (update = u));
+    const stopUpdate = onUpdate((u) => (update = u));
+    const stopProgress = onUpdateProgress((percent) => (downloaded = percent));
     return () => {
       stopStatus.then((unlisten) => unlisten());
       stopResize.then((unlisten) => unlisten());
+      stopUpdate.then((unlisten) => unlisten());
+      stopProgress.then((unlisten) => unlisten());
     };
   });
+
+  /** On Windows this never returns: the installer closes the app and opens the new version. */
+  async function startUpdate() {
+    installing = true;
+    updateError = null;
+    try {
+      await installUpdate();
+    } catch (e) {
+      updateError = String(e);
+      installing = false;
+      downloaded = null;
+    }
+  }
 
   function syncHistoryButtons() {
     canUndo = undoStack.length > 0;
@@ -230,6 +268,20 @@
       <div class="banner error" role="alert">
         <Icon name="alert" />
         <span><strong>Mudança ainda não salva:</strong> {saveError}</span>
+      </div>
+    {/if}
+    {#if update}
+      <div class="banner" role="status">
+        <Icon name="refresh" />
+        {#if installing}
+          <span>Baixando a versão {update.version}{downloaded === null ? '' : ` (${downloaded}%)`}. O D200 Deck fecha e abre de novo sozinho.</span>
+        {:else}
+          <span>
+            <strong>Versão {update.version} disponível.</strong>
+            {updateError ? `A atualização falhou: ${updateError}` : 'O app fecha por alguns segundos e volta na versão nova.'}
+          </span>
+          <button type="button" class="primary" onclick={startUpdate}>{updateError ? 'Tentar de novo' : 'Atualizar e reiniciar'}</button>
+        {/if}
       </div>
     {/if}
     {#if status.simulation}

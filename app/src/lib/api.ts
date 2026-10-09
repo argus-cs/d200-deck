@@ -16,6 +16,7 @@ export const getConfig = () => invoke<Config>('get_config');
 export const saveConfig = (config: Config) => invoke('save_config', { config });
 export const glyphs = () => invoke<Glyph[]>('glyphs');
 export const runningApps = () => invoke<RunningApp[]>('running_apps');
+export const audioOutputs = () => invoke<string[]>('audio_outputs');
 export const pickImage = () => invoke<string | null>('pick_image');
 export const pickFile = () => invoke<string | null>('pick_file');
 export const appIcon = (path: string) => invoke<string>('app_icon', { path });

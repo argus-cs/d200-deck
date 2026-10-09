@@ -45,6 +45,8 @@ export interface Status {
   rules: RuleStatus[];
   keys: KeyStatus[];
   screen: ScreenStatus;
+  /** The label of the folder showing in place of the layout. */
+  folder: string | null;
 }
 
 export interface ScreenStatus {
@@ -129,12 +131,30 @@ export const screenLabel = (type: string) => SCREEN_TYPES.find((s) => s.type ===
 
 export type MediaKey = 'play_pause' | 'next' | 'previous' | 'stop' | 'volume_up' | 'volume_down' | 'mute';
 
+export type Setting =
+  | 'bluetooth'
+  | 'wifi'
+  | 'microphone'
+  | 'sound'
+  | 'dark_theme'
+  | 'keep_awake'
+  | 'audio_output'
+  | 'projection'
+  | 'power_mode'
+  | 'sleep'
+  | 'monitor_off'
+  | 'empty_recycle_bin';
+
+/** For on/off settings; toggle is the default and is left out of config.json. */
+export type Switch = 'toggle' | 'on' | 'off';
+
 export type Action =
   | { type: 'hotkey'; keys: string }
   | { type: 'open'; target: string; args?: string | null; watch?: boolean }
   | { type: 'command'; command: string }
   | { type: 'text'; text: string }
-  | { type: 'media'; key: MediaKey };
+  | { type: 'media'; key: MediaKey }
+  | { type: 'system'; setting: Setting; set?: Switch; value?: string | null };
 
 /** The second state of a two-state key; no action repeats the key's. */
 export interface KeyFace {
@@ -151,7 +171,18 @@ export interface KeyFace {
 export interface Key extends KeyFace {
   front?: boolean;
   toggle?: KeyFace | null;
+  /** Pressing it shows these keys instead of running an action. */
+  folder?: Folder | null;
 }
+
+/** Keys 2 to 13 (key 1 is "Voltar"); `stay` keeps it open after a key runs. */
+export interface Folder {
+  keys: Record<string, Key>;
+  stay?: boolean;
+}
+
+/** Key 1 of an open folder, as the engine draws it (`Key::back`). */
+export const BACK_KEY: Key = { label: 'Voltar', icon: 'back', color: '#24262B', icon_color: '#F0A63A' };
 
 export interface LabelStyle {
   show: boolean;
@@ -185,6 +216,9 @@ const SECOND_ICON: Record<string, string> = {
   eye: 'eyeOff',
   play: 'pause',
   record: 'stop',
+  bluetooth: 'bluetoothOff',
+  wifi: 'wifiOff',
+  moon: 'sun',
 };
 
 export function secondFace(key: Key): KeyFace {
@@ -248,7 +282,152 @@ export const ACTION_TYPES: { value: Action['type']; label: string }[] = [
   { value: 'command', label: 'Rodar comando' },
   { value: 'text', label: 'Digitar texto' },
   { value: 'media', label: 'Mídia' },
+  { value: 'system', label: 'Ajuste do Windows' },
 ];
+
+/** Mirrors `system::Kind`: on/off settings and choices show their state on the key. */
+export type SettingKind = 'on_off' | 'choice' | 'once';
+
+export interface SettingChoice {
+  value: string;
+  label: string;
+  /** For the key itself. */
+  short: string;
+}
+
+export interface SettingInfo {
+  value: Setting;
+  label: string;
+  kind: SettingKind;
+  hint: string;
+  /** The look suggested for a new key. */
+  icon: string;
+  short: string;
+  /** On/off settings: the second face suggested for "off". */
+  off?: { icon: string; label: string };
+  choices?: SettingChoice[];
+}
+
+export const SETTINGS: SettingInfo[] = [
+  {
+    value: 'bluetooth',
+    label: 'Bluetooth',
+    kind: 'on_off',
+    hint: 'Liga e desliga o Bluetooth do PC.',
+    icon: 'bluetooth',
+    short: 'Bluetooth',
+    off: { icon: 'bluetoothOff', label: 'Desligado' },
+  },
+  {
+    value: 'wifi',
+    label: 'Wi-Fi',
+    kind: 'on_off',
+    hint: 'Liga e desliga o Wi-Fi do PC.',
+    icon: 'wifi',
+    short: 'Wi-Fi',
+    off: { icon: 'wifiOff', label: 'Desligado' },
+  },
+  {
+    value: 'microphone',
+    label: 'Microfone (mudo no Windows)',
+    kind: 'on_off',
+    hint: 'Muta o microfone padrão no próprio Windows: vale para todos os apps, sem trazer nenhum para a frente.',
+    icon: 'mic',
+    short: 'Microfone',
+    off: { icon: 'micOff', label: 'Mutado' },
+  },
+  {
+    value: 'sound',
+    label: 'Som (mudo no Windows)',
+    kind: 'on_off',
+    hint: 'Muta a saída de som padrão.',
+    icon: 'volume',
+    short: 'Som',
+    off: { icon: 'volumeOff', label: 'Mudo' },
+  },
+  {
+    value: 'dark_theme',
+    label: 'Tema escuro',
+    kind: 'on_off',
+    hint: 'Troca o Windows e os apps entre o tema escuro e o claro.',
+    icon: 'moon',
+    short: 'Tema escuro',
+    off: { icon: 'sun', label: 'Tema claro' },
+  },
+  {
+    value: 'keep_awake',
+    label: 'Manter o PC acordado',
+    kind: 'on_off',
+    hint: 'Enquanto ligado, o PC e a tela não dormem. Desliga sozinho quando o D200 Deck fecha.',
+    icon: 'coffee',
+    short: 'Acordado',
+  },
+  {
+    value: 'audio_output',
+    label: 'Saída de áudio',
+    kind: 'choice',
+    hint: 'Passa a tocar o som por esta saída.',
+    icon: 'headphones',
+    short: 'Saída',
+  },
+  {
+    value: 'projection',
+    label: 'Modo de projeção (Win+P)',
+    kind: 'choice',
+    hint: 'Como o Windows usa os monitores, sem abrir o menu do Win+P.',
+    icon: 'desktop',
+    short: 'Projeção',
+    choices: [
+      { value: 'internal', label: 'Só a tela do PC', short: 'Só PC' },
+      { value: 'clone', label: 'Duplicar', short: 'Duplicar' },
+      { value: 'extend', label: 'Estender', short: 'Estender' },
+      { value: 'external', label: 'Só a segunda tela', short: '2ª tela' },
+    ],
+  },
+  {
+    value: 'power_mode',
+    label: 'Modo de energia',
+    kind: 'choice',
+    hint: 'O modo de energia do Windows 11 (Configurações › Energia). Só tem efeito com o plano Equilibrado.',
+    icon: 'zap',
+    short: 'Energia',
+    choices: [
+      { value: 'efficiency', label: 'Melhor eficiência de energia', short: 'Economia' },
+      { value: 'balanced', label: 'Equilibrado', short: 'Equilibrado' },
+      { value: 'performance', label: 'Melhor desempenho', short: 'Desempenho' },
+    ],
+  },
+  { value: 'sleep', label: 'Suspender o PC', kind: 'once', hint: 'O PC entra em suspensão na hora.', icon: 'moon', short: 'Suspender' },
+  {
+    value: 'monitor_off',
+    label: 'Desligar a tela',
+    kind: 'once',
+    hint: 'A tela volta ao mexer no mouse ou no teclado.',
+    icon: 'desktop',
+    short: 'Tela off',
+  },
+  {
+    value: 'empty_recycle_bin',
+    label: 'Esvaziar a lixeira',
+    kind: 'once',
+    hint: 'Apaga de vez tudo o que está na lixeira, sem perguntar.',
+    icon: 'trash',
+    short: 'Lixeira',
+  },
+];
+
+export const settingInfo = (setting: Setting) => SETTINGS.find((s) => s.value === setting) ?? SETTINGS[0];
+
+/** "Fones de ouvido (Realtek Audio)" → "Fones de ouvido", short enough for a key. */
+export const shortDevice = (name: string) => name.replace(/\s*\(.*$/, '').trim() || name;
+
+/** What a system action suggests putting on its key. */
+export function settingLook(action: Extract<Action, { type: 'system' }>): { icon: string; label: string; off?: { icon: string; label: string } } {
+  const info = settingInfo(action.setting);
+  const choice = info.choices?.find((c) => c.value === action.value);
+  const label = choice?.short ?? (action.setting === 'audio_output' && action.value ? shortDevice(action.value) : info.short);
+  return { icon: info.icon, label, off: info.off };
+}
 
 export const MEDIA_KEYS: { value: MediaKey; label: string }[] = [
   { value: 'play_pause', label: 'Play/Pause' },
@@ -272,6 +451,8 @@ export function newAction(type: Action['type']): Action {
       return { type, text: '' };
     case 'media':
       return { type, key: 'play_pause' };
+    case 'system':
+      return { type, setting: 'bluetooth' };
   }
 }
 

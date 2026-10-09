@@ -73,6 +73,9 @@
     <div class="chips">
       <span class="chip"><span class="muted">Em foco</span><span class="mono">{focusedText}</span></span>
       <span class="chip"><span class="muted">Abertos</span><span class="mono">{status.open.join(', ') || 'nenhum com regra'}</span></span>
+      {#if status.folder}
+        <span class="chip folder"><span class="muted">Pasta aberta</span><span>{status.folder}</span></span>
+      {/if}
     </div>
 
     <Deck keys={status.keys} {selected} {lit} screen={status.screen} onselect={(n) => (selected = n)} />
@@ -194,6 +197,9 @@
     background: var(--surface);
     border: 1px solid var(--line-soft);
     font-size: 13px;
+  }
+  .chip.folder {
+    border-color: var(--accent);
   }
   .cards {
     display: flex;

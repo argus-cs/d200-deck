@@ -44,6 +44,9 @@ fn main() -> anyhow::Result<()> {
         ("key-long", Look { icon: Some("terminal"), background: "#12303A", icon_color: "#BFF0D4", border: None, label: "Bloco de Notas do Windows", text_color: "#FFFFFF", label_px: 24, dim: false }),
         ("key-nolabel", Look { icon: Some("play"), background: "#1F2A44", icon_color: "#F0A63A", border: Some("#F0A63A"), label: "", text_color: "#FFFFFF", label_px: 24, dim: false }),
         ("key-dimmed", Look { icon: Some("music"), background: "#1F3A2A", icon_color: ICON_COLOR, border: None, label: "Spotify", text_color: "#FFFFFF", label_px: 24, dim: true }),
+        ("key-back", Look { icon: Some("back"), background: "#24262B", icon_color: "#F0A63A", border: None, label: "Voltar", text_color: "#FFFFFF", label_px: 24, dim: false }),
+        ("key-bluetooth-off", Look { icon: Some("bluetoothOff"), background: "#3A1616", icon_color: ICON_COLOR, border: None, label: "Desligado", text_color: "#FFFFFF", label_px: 24, dim: false }),
+        ("key-wifi-off", Look { icon: Some("wifiOff"), background: "#3A1616", icon_color: ICON_COLOR, border: None, label: "Desligado", text_color: "#FFFFFF", label_px: 24, dim: false }),
     ];
     for (name, look) in keys {
         std::fs::write(folder.join(format!("{name}.png")), render_key(&look, &folder)?)?;

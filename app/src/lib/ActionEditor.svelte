@@ -1,13 +1,27 @@
 <script lang="ts">
-  import { pickFile, runningApps } from './api';
+  import { audioOutputs, pickFile, runningApps } from './api';
   import { hotkeyFrom } from './hotkey';
-  import { ACTION_TYPES, MEDIA_KEYS, newAction, opensApp, type Action, type EdgePage, type RunningApp } from './types';
+  import {
+    ACTION_TYPES,
+    MEDIA_KEYS,
+    SETTINGS,
+    newAction,
+    opensApp,
+    settingInfo,
+    type Action,
+    type EdgePage,
+    type RunningApp,
+    type Setting,
+    type SettingKind,
+    type Switch,
+  } from './types';
 
   let {
     action = $bindable(),
     id,
     noneLabel = 'Nenhuma',
     edgePages = [],
+    onpick,
   }: {
     action: Action | null | undefined;
     /** Prefix for the field ids, so two editors can share a page. */
@@ -15,16 +29,55 @@
     noneLabel?: string;
     /** Open Edge pages, offered as quick targets. */
     edgePages?: EdgePage[];
+    /** A Windows setting or its choice was picked, so the key can take a matching look. */
+    onpick?: (action: Extract<Action, { type: 'system' }>) => void;
   } = $props();
 
+  const GROUPS: { kind: SettingKind; label: string }[] = [
+    { kind: 'on_off', label: 'Ligar e desligar' },
+    { kind: 'choice', label: 'Escolher' },
+    { kind: 'once', label: 'Fazer uma vez' },
+  ];
+  const SWITCHES: { value: Switch; label: string }[] = [
+    { value: 'toggle', label: 'Alternar' },
+    { value: 'on', label: 'Ligar' },
+    { value: 'off', label: 'Desligar' },
+  ];
+
   let recording = $state(false);
-  let panel = $state<'none' | 'apps' | 'sites'>('none');
+  let panel = $state<'none' | 'apps' | 'sites' | 'outputs'>('none');
   let apps = $state<RunningApp[]>([]);
+  let outputs = $state<string[]>([]);
   let pickError = $state<string | null>(null);
 
-  async function togglePanel(next: 'apps' | 'sites') {
+  async function togglePanel(next: 'apps' | 'sites' | 'outputs') {
     panel = panel === next ? 'none' : next;
-    if (panel === 'apps') apps = (await runningApps()).filter((a) => a.exe.toLowerCase() !== 'd200-deck.exe');
+    pickError = null;
+    try {
+      if (panel === 'apps') apps = (await runningApps()).filter((a) => a.exe.toLowerCase() !== 'd200-deck.exe');
+      if (panel === 'outputs') outputs = await audioOutputs();
+    } catch (e) {
+      pickError = String(e);
+    }
+  }
+
+  function setSetting(setting: Setting) {
+    const next: Extract<Action, { type: 'system' }> = { type: 'system', setting, value: settingInfo(setting).choices?.[0].value ?? null };
+    action = next;
+    panel = 'none';
+    onpick?.(next);
+  }
+
+  /** Toggle is the default, so it is left out of config.json. */
+  function setSwitch(set: Switch) {
+    if (action?.type === 'system') action.set = set === 'toggle' ? undefined : set;
+  }
+
+  function setValue(value: string) {
+    if (action?.type !== 'system') return;
+    action.value = value;
+    panel = 'none';
+    onpick?.(action);
   }
 
   /** Store apps open by name (through their alias); started from their own
@@ -55,6 +108,7 @@
 
   function setType(type: string) {
     action = type ? newAction(type as Action['type']) : null;
+    if (action?.type === 'system') onpick?.(action);
   }
 
   function record() {
@@ -165,6 +219,63 @@
       {#each MEDIA_KEYS as media (media.value)}<option value={media.value}>{media.label}</option>{/each}
     </select>
   </div>
+{:else if action?.type === 'system'}
+  {@const info = settingInfo(action.setting)}
+  <div class="field">
+    <label class="name" for={`${id}-setting`}>Ajuste</label>
+    <select id={`${id}-setting`} value={action.setting} onchange={(e) => setSetting(e.currentTarget.value as Setting)}>
+      {#each GROUPS as group (group.kind)}
+        <optgroup label={group.label}>
+          {#each SETTINGS.filter((s) => s.kind === group.kind) as setting (setting.value)}
+            <option value={setting.value}>{setting.label}</option>
+          {/each}
+        </optgroup>
+      {/each}
+    </select>
+    {#if info.kind === 'on_off'}
+      <div class="segmented" role="group" aria-label="O que a tecla faz">
+        {#each SWITCHES as option (option.value)}
+          <button type="button" aria-pressed={(action.set ?? 'toggle') === option.value} onclick={() => setSwitch(option.value)}>
+            {option.label}
+          </button>
+        {/each}
+      </div>
+    {:else if info.choices}
+      <select aria-label={info.label} value={action.value ?? ''} onchange={(e) => setValue(e.currentTarget.value)}>
+        {#each info.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
+      </select>
+    {:else if action.setting === 'audio_output'}
+      <label class="name" for={`${id}-output`}>Saída</label>
+      <input
+        id={`${id}-output`}
+        type="text"
+        value={action.value ?? ''}
+        oninput={(e) => {
+          if (action?.type === 'system') action.value = e.currentTarget.value;
+        }}
+        placeholder="Nome como aparece no Windows"
+      />
+      <div class="quick">
+        <button type="button" class="secondary small-btn" aria-expanded={panel === 'outputs'} onclick={() => togglePanel('outputs')}>
+          Saídas ligadas agora
+        </button>
+      </div>
+      {#if panel === 'outputs'}
+        <ul class="choices scroll">
+          {#each outputs as output (output)}
+            <li><button type="button" class="choice" onclick={() => setValue(output)}><span class="ellipsis">{output}</span></button></li>
+          {/each}
+          {#if outputs.length === 0}<li class="muted small">Nenhuma saída de áudio ligada.</li>{/if}
+        </ul>
+      {/if}
+      {#if pickError}<span class="error-text small">{pickError}</span>{/if}
+    {/if}
+    <span class="muted small">
+      {info.hint}
+      {#if info.kind === 'on_off'}A tecla mostra o estado real, mesmo se você mudar pelo Windows.{/if}
+      {#if info.kind === 'choice'}A tecla escurece enquanto outra opção estiver em uso.{/if}
+    </span>
+  </div>
 {/if}
 
 <style>
@@ -205,6 +316,26 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+  .segmented {
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+  }
+  .segmented button {
+    flex: 1 1 0;
+    border: 0;
+    border-radius: 8px;
+    padding: 6px 10px;
+    background: transparent;
+    color: var(--soft);
+    font-weight: 500;
+  }
+  .segmented button[aria-pressed='true'] {
+    background: var(--accent);
+    color: var(--ink);
   }
   .check {
     display: flex;

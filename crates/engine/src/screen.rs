@@ -312,7 +312,10 @@ fn body(screen: &Screen, content: &ScreenContent, data: &Data) -> String {
             if let Some(progress) = progress {
                 let width = ((WIDTH - 48) as f32 * progress) as u32;
                 out += &format!(r#"<rect x="24" y="176" width="{}" height="6" rx="3" fill="{fg}" fill-opacity="0.15"/>"#, WIDTH - 48);
-                out += &format!(r#"<rect x="24" y="176" width="{width}" height="6" rx="3" fill="{accent}"/>"#);
+                // usvg rejects a 0 width with a warning; there is nothing to draw anyway.
+                if width > 0 {
+                    out += &format!(r#"<rect x="24" y="176" width="{width}" height="6" rx="3" fill="{accent}"/>"#);
+                }
             }
         }
         ScreenContent::Image { icon } => match icon.as_deref() {
@@ -419,11 +422,14 @@ fn bar_row(x0: u32, x1: u32, y: u32, size: u32, label_width: u32, label: &str, v
     match value {
         Some(v) => {
             let filled = (bar_width as f32 * (v.clamp(0.0, 100.0) / 100.0)) as u32;
-            out += &format!(
-                r#"<rect x="{bar_x}" y="{}" width="{filled}" height="{height}" rx="{}" fill="{accent}"/>"#,
-                y - height / 2,
-                height / 2
-            );
+            // At 0% (an idle GPU) there is no bar, and usvg warns about a 0 width.
+            if filled > 0 {
+                out += &format!(
+                    r#"<rect x="{bar_x}" y="{}" width="{filled}" height="{height}" rx="{}" fill="{accent}"/>"#,
+                    y - height / 2,
+                    height / 2
+                );
+            }
             out += &text(x1, y + size / 3, size, 700, fg, 1.0, "end", &format!("{:.0}%", v));
         }
         None => out += &text(x1, y + size / 3, size, 700, fg, 0.5, "end", "—"),
@@ -694,6 +700,18 @@ mod tests {
             assert_eq!(img.dimensions(), (WIDTH, HEIGHT), "{content:?}");
             let background = img.get_pixel(1, 1).0;
             assert!(img.pixels().any(|p| p.0 != background), "{content:?} drew nothing");
+        }
+    }
+
+    #[test]
+    fn empty_bars_are_left_out() {
+        // Idle: nothing measured yet, a countdown not started.
+        let usage = Usage { gpu: Some(0.0), ..Usage::default() };
+        let timer = Timer::default();
+        for content in screens() {
+            let screen = Screen::new(content.clone());
+            let svg = body(&screen, &content, &data(&usage, &timer, None));
+            assert!(!svg.contains(r#"width="0""#), "{content:?} has a 0-wide shape");
         }
     }
 

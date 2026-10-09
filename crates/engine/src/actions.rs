@@ -79,6 +79,7 @@ pub fn describe(action: &Action) -> String {
         Action::Command { command } => format!("comando {command}"),
         Action::Text { text } => format!("digitar {} caracteres", text.chars().count()),
         Action::Media { key } => format!("mídia {key:?}"),
+        Action::System { setting, set, value } => crate::system::describe(*setting, *set, value.as_deref()),
     }
 }
 
@@ -188,6 +189,7 @@ pub fn execute(action: &Action) -> Result<()> {
         Action::Text { text } => win::type_text(text),
         Action::Open { target, args, .. } => win::open(target, args.as_deref()),
         Action::Command { command } => win::command(command),
+        Action::System { setting, set, value } => crate::system::apply(*setting, *set, value.as_deref()),
     }
 }
 

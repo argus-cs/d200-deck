@@ -1,5 +1,6 @@
 <script lang="ts">
   import EditDeck from './EditDeck.svelte';
+  import Icon from './Icon.svelte';
   import KeyEditor from './KeyEditor.svelte';
   import ScreenEditor from './ScreenEditor.svelte';
   import { defaultScreen, ruleTarget, type Config, type EdgePage, type Glyph, type Key, type Mode } from './types';
@@ -30,9 +31,15 @@
 
   let selected = $state(1);
   let confirmDelete = $state(false);
+  /** The folder key whose keys are being edited, if any. */
+  let folderOf = $state<number | null>(null);
 
   const rule = $derived(index === null ? null : config.rules[index]);
   const layer = $derived(rule ? rule.keys : config.keys);
+  const folderKey = $derived(folderOf === null ? null : (layer[folderOf] ?? null));
+  const folder = $derived(folderKey?.folder ?? null);
+  /** The keys being edited: the open folder's, or the layer's. */
+  const here = $derived(folder ? folder.keys : layer);
   const target = $derived(rule ? ruleTarget(rule) : null);
   const explain = $derived.by(() => {
     if (!rule || !target) return '';
@@ -79,30 +86,47 @@
     ondeleted();
   }
 
-  /** Swaps two keys of this layer; an empty spot moves too. The visor is not a key. */
+  /** Keys that can't be edited where they are: the visor, and "Voltar" in a folder. */
+  const fixed = (n: number) => n === 14 || (!!folder && n === 1);
+
+  /** Swaps two keys of this layer or folder; an empty spot moves too. */
   function swap(from: number, to: number) {
-    if (from === 14 || to === 14) return;
-    const a = layer[from] ? $state.snapshot(layer[from]) : undefined;
-    const b = layer[to] ? $state.snapshot(layer[to]) : undefined;
-    if (b) layer[from] = b;
-    else delete layer[from];
-    if (a) layer[to] = a;
-    else delete layer[to];
+    if (fixed(from) || fixed(to)) return;
+    const a = here[from] ? $state.snapshot(here[from]) : undefined;
+    const b = here[to] ? $state.snapshot(here[to]) : undefined;
+    if (b) here[from] = b;
+    else delete here[from];
+    if (a) here[to] = a;
+    else delete here[to];
     selected = to;
   }
 
   function paste() {
-    if (clipboard) layer[selected] = { ...structuredClone(clipboard), front: rule ? (clipboard.front ?? false) : false };
+    if (!clipboard || fixed(selected)) return;
+    const pasted = { ...structuredClone(clipboard), front: rule ? (clipboard.front ?? false) : false };
+    // A folder can't hold another one.
+    if (folder && pasted.folder) pasted.folder = null;
+    here[selected] = pasted;
+  }
+
+  function openFolder(n: number) {
+    folderOf = n;
+    selected = 2;
+  }
+
+  function closeFolder() {
+    if (folderOf !== null) selected = folderOf;
+    folderOf = null;
   }
 
   // Ctrl+C / Ctrl+V act on the selected key, except while typing in a field.
   function onKey(event: KeyboardEvent) {
-    if (!event.ctrlKey || event.altKey || event.shiftKey || selected === 14) return;
+    if (!event.ctrlKey || event.altKey || event.shiftKey || fixed(selected)) return;
     if ((event.target as HTMLElement | null)?.closest('input, textarea, select, [contenteditable]')) return;
     const letter = event.key.toLowerCase();
-    if (letter === 'c' && layer[selected]) {
+    if (letter === 'c' && here[selected]) {
       event.preventDefault();
-      oncopy($state.snapshot(layer[selected]));
+      oncopy($state.snapshot(here[selected]));
     } else if (letter === 'v' && clipboard) {
       event.preventDefault();
       paste();
@@ -114,7 +138,33 @@
 
 <div class="layout">
   <main class="scroll">
-    {#if rule && target && index !== null}
+    {#if folder && folderOf !== null}
+      <div class="folder-head">
+        <nav class="crumbs" aria-label="Onde você está">
+          <button type="button" class="crumb" onclick={closeFolder}>{rule ? rule.name || 'Regra' : 'Layout padrão'}</button>
+          <span class="muted" aria-hidden="true">›</span>
+          <h1>{folderKey?.label || `Pasta da tecla ${folderOf}`}</h1>
+        </nav>
+        <button type="button" class="secondary with-icon" onclick={closeFolder}><Icon name="back" size={16} />Sair da pasta</button>
+      </div>
+      <p class="muted">
+        No D200, a pasta toma o lugar de todas as teclas e a tecla 1 volta ao layout.
+        {folder.stay
+          ? 'Ela continua aberta depois de usar as outras teclas.'
+          : 'Usar qualquer outra tecla dela também volta.'}
+        Sem nenhum toque, ela fecha sozinha em 30 segundos.
+      </p>
+      <EditDeck
+        keys={folder.keys}
+        folder
+        label={config.label}
+        screen={rule?.screen ?? baseScreen}
+        screenState={rule?.screen ? 'override' : 'own'}
+        {selected}
+        onselect={(n) => (selected = n)}
+        onswap={swap}
+      />
+    {:else if rule && target && index !== null}
       <div class="rule-head">
         <div class="title-row">
           <input class="title" aria-label="Nome da regra" bind:value={rule.name} />
@@ -159,6 +209,7 @@
         {selected}
         onselect={(n) => (selected = n)}
         onswap={swap}
+        onopen={openFolder}
       />
       <div class="legend">
         <span><span class="swatch override"></span>Trocada nesta regra</span>
@@ -177,16 +228,42 @@
         {selected}
         onselect={(n) => (selected = n)}
         onswap={swap}
+        onopen={openFolder}
       />
     {/if}
     <p class="muted small">
-      Arraste uma tecla sobre outra para trocar as duas de lugar. Ctrl+C e Ctrl+V copiam e colam a tecla selecionada. Clique no visor para
-      escolher o que ele mostra.
+      Arraste uma tecla sobre outra para trocar as duas de lugar. Ctrl+C e Ctrl+V copiam e colam a tecla selecionada.
+      {folder ? '' : 'Clique no visor para escolher o que ele mostra, e duas vezes numa pasta para ver o que tem dentro.'}
     </p>
   </main>
 
   <aside class="scroll" aria-label="Tecla selecionada">
-    {#if selected === 14 && rule && index !== null}
+    {#if folder && folderOf !== null && selected === 1}
+      <div>
+        <div class="muted small">Pasta · tecla 1</div>
+        <h2 class="aside-title">Voltar</h2>
+      </div>
+      <div class="notice">
+        Dentro de uma pasta, a tecla 1 sempre volta ao layout. As teclas da pasta vão da 2 à 13.
+      </div>
+    {:else if folder && folderOf !== null}
+      <KeyEditor
+        bind:keys={
+          () => here,
+          (keys) => {
+            if (folder) folder.keys = keys;
+          }
+        }
+        number={selected}
+        inRule={!!rule}
+        inFolder
+        {glyphs}
+        {edgePages}
+        labelStyle={config.label}
+        {clipboard}
+        {oncopy}
+      />
+    {:else if selected === 14 && rule && index !== null}
       <ScreenEditor bind:screen={config.rules[index].screen} inRule inherited={baseScreen} {glyphs} {edgePages} />
     {:else if selected === 14}
       <ScreenEditor bind:screen={config.screen} inRule={false} inherited={baseScreen} {glyphs} {edgePages} />
@@ -201,6 +278,7 @@
         labelStyle={config.label}
         {clipboard}
         {oncopy}
+        onopenfolder={openFolder}
       />
     {:else}
       <KeyEditor
@@ -212,6 +290,7 @@
         labelStyle={config.label}
         {clipboard}
         {oncopy}
+        onopenfolder={openFolder}
       />
     {/if}
   </aside>
@@ -244,6 +323,52 @@
   h1 {
     font-size: 22px;
     font-weight: 600;
+  }
+  .folder-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .crumbs h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .crumb {
+    flex: none;
+    border: 0;
+    padding: 2px 4px;
+    background: transparent;
+    color: var(--soft);
+    font-size: 15px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .crumb:hover {
+    color: var(--text);
+  }
+  .with-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .aside-title {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .notice {
+    padding: 14px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 12px;
+    background: var(--surface);
   }
   .rule-head {
     display: flex;

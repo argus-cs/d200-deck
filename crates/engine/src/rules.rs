@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Config, Key, Rule, RuleMode};
+use crate::config::{Config, Folder, Key, Rule, RuleMode, BACK_KEY};
 
 /// The browser whose tabs the extension reports.
 pub const BROWSER: &str = "msedge.exe";
@@ -82,6 +82,8 @@ pub fn host_of(url: &str) -> Option<String> {
 pub struct Slot {
     pub key: Key,
     pub rule: Option<usize>,
+    /// The folder key this one sits in, while a folder is open.
+    pub folder: Option<u8>,
 }
 
 pub fn is_active(rule: &Rule, ctx: &Context) -> bool {
@@ -116,12 +118,21 @@ pub fn active_rules(config: &Config, ctx: &Context) -> Vec<usize> {
 
 pub fn resolve(config: &Config, active: &[usize]) -> BTreeMap<u8, Slot> {
     let mut slots: BTreeMap<u8, Slot> =
-        config.keys.iter().map(|(n, key)| (*n, Slot { key: key.clone(), rule: None })).collect();
+        config.keys.iter().map(|(n, key)| (*n, Slot { key: key.clone(), rule: None, folder: None })).collect();
     for &i in active {
         for (n, key) in &config.rules[i].keys {
-            slots.insert(*n, Slot { key: key.clone(), rule: Some(i) });
+            slots.insert(*n, Slot { key: key.clone(), rule: Some(i), folder: None });
         }
     }
+    slots
+}
+
+/// An open folder in place of the whole layout: its keys, acting like
+/// keys of the rule the folder came from, and "back" on `BACK_KEY`.
+pub fn resolve_folder(folder: &Folder, rule: Option<usize>, number: u8) -> BTreeMap<u8, Slot> {
+    let slot = |key: &Key| Slot { key: key.clone(), rule, folder: Some(number) };
+    let mut slots: BTreeMap<u8, Slot> = folder.keys.iter().map(|(n, key)| (*n, slot(key))).collect();
+    slots.insert(BACK_KEY, slot(&Key::back()));
     slots
 }
 
@@ -296,6 +307,17 @@ mod tests {
         assert_eq!(labels(&config(), &edge_behind)[2], "next");
         let other_tab = with_tabs(ctx(Some("msedge.exe"), &[]), Some(other.clone()), &[yt, other]);
         assert_eq!(labels(&config(), &other_tab)[2], "next");
+    }
+
+    #[test]
+    fn an_open_folder_replaces_every_key_and_goes_back_on_key_1() {
+        let folder = Folder { keys: [(2, key("bluetooth")), (13, key("wi-fi"))].into_iter().collect(), stay: false };
+        let slots = resolve_folder(&folder, Some(1), 5);
+        assert_eq!(slots.keys().copied().collect::<Vec<_>>(), [1, 2, 13]);
+        assert_eq!(slots[&1].key, Key::back());
+        assert_eq!(slots[&2].key.label, "bluetooth");
+        // Keys in a rule's folder act like that rule's keys ("front").
+        assert!(slots.values().all(|s| s.rule == Some(1) && s.folder == Some(5)));
     }
 
     #[test]

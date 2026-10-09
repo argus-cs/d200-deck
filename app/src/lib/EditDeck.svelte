@@ -1,20 +1,25 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { keyUrl, screenUrl } from './icons.svelte';
-  import { KEY_NUMBERS, screenLabel, type Key, type LabelStyle, type Screen } from './types';
+  import { BACK_KEY, KEY_NUMBERS, screenLabel, type Key, type LabelStyle, type Screen } from './types';
 
   let {
     keys,
     inherited = null,
+    folder = false,
     label,
     screen,
     screenState,
     selected,
     onselect,
     onswap,
+    onopen,
   }: {
     keys: Record<string, Key>;
     /** The default layout under a rule; null when editing the default layout itself. */
     inherited?: Record<string, Key> | null;
+    /** Editing a folder: key 1 is always "Voltar" and the visor stays as it is. */
+    folder?: boolean;
     /** Text style, since labels are drawn into the key images. */
     label: LabelStyle;
     /** The visor this layer shows. */
@@ -25,6 +30,8 @@
     onselect: (n: number) => void;
     /** A key was dragged onto another: swap the two in this layer. */
     onswap: (from: number, to: number) => void;
+    /** A folder key was double-clicked: show what is inside. */
+    onopen?: (n: number) => void;
   } = $props();
 
   let dragging = $state<number | null>(null);
@@ -32,16 +39,19 @@
 
   const tiles = $derived(
     KEY_NUMBERS.filter((n) => n <= 13).map((n) => {
-      const own = keys[n];
+      const back = folder && n === 1;
+      const own = back ? BACK_KEY : keys[n];
       const base = inherited?.[n];
       const shown = own ?? base ?? null;
       return {
         n,
+        back,
         shown,
-        own: !!own,
+        own: !!own && !back,
         twoState: !!shown?.toggle,
+        isFolder: !!shown?.folder,
         image: shown ? keyUrl(shown, label) : null,
-        state: own ? (inherited ? 'override' : 'own') : base ? 'inherited' : 'empty',
+        state: back ? 'back' : own ? (inherited ? 'override' : 'own') : base ? 'inherited' : 'empty',
       };
     }),
   );
@@ -64,9 +74,19 @@
       class:over={over === tile.n && dragging !== tile.n}
       draggable={tile.own}
       aria-pressed={tile.n === selected}
-      aria-label={`Tecla ${tile.n}: ${tile.shown?.label || 'vazia'}${tile.state === 'inherited' ? ' (do padrão)' : ''}`}
-      title={tile.own ? 'Arraste sobre outra tecla para trocar as duas de lugar' : undefined}
+      aria-label={`Tecla ${tile.n}: ${tile.shown?.label || 'vazia'}${tile.state === 'inherited' ? ' (do padrão)' : ''}${tile.isFolder ? ' (pasta)' : ''}`}
+      title={tile.back
+        ? 'No D200, esta tecla volta ao layout'
+        : tile.isFolder && tile.own
+          ? 'Clique duas vezes para editar a pasta'
+          : tile.own
+            ? 'Arraste sobre outra tecla para trocar as duas de lugar'
+            : undefined}
       onclick={() => onselect(tile.n)}
+      ondblclick={() => {
+        // A folder inherited from the default layout is edited there.
+        if (tile.isFolder && tile.own) onopen?.(tile.n);
+      }}
       ondragstart={(e) => {
         dragging = tile.n;
         e.dataTransfer?.setData('text/plain', String(tile.n));
@@ -77,7 +97,7 @@
         over = null;
       }}
       ondragover={(e) => {
-        if (dragging === null) return;
+        if (dragging === null || tile.back) return;
         e.preventDefault();
         over = tile.n;
       }}
@@ -92,14 +112,18 @@
       {#if tile.image}<img src={tile.image} alt="" draggable="false" />{/if}
       {#if !tile.shown}<span class="hint">+</span>{/if}
       {#if tile.twoState}<span class="two" title="Tecla de dois estados">2</span>{/if}
+      {#if tile.isFolder}<span class="two folder-badge" title="Pasta"><Icon name="folder" size={11} /></span>{/if}
     </button>
   {/each}
   <button
     type="button"
     class="key screen {screenState}"
     class:selected={selected === 14}
+    class:untouchable={folder}
+    disabled={folder}
     aria-pressed={selected === 14}
     aria-label={`Visor: ${screenLabel(screen.content.type)}${screenState === 'inherited' ? ' (do padrão)' : ''}`}
+    title={folder ? 'Dentro da pasta o visor continua o mesmo' : undefined}
     onclick={() => onselect(14)}
   >
     {#if screenImage}
@@ -177,6 +201,21 @@
     font-weight: 700;
     line-height: 16px;
     pointer-events: none;
+  }
+  .folder-badge {
+    left: auto;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .back {
+    border-style: dashed;
+    border-color: var(--accent);
+  }
+  .untouchable {
+    opacity: 0.45;
+    cursor: default;
   }
   .empty {
     background: var(--device-empty);

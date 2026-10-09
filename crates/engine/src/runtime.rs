@@ -23,15 +23,16 @@ use serde_json::json;
 
 use crate::actions::{self, Front};
 use crate::browser::{self, Bridge};
-use crate::config::{Action, Config, Key, LabelStyle, Rule, RuleMode, When, Window};
+use crate::config::{Action, Config, Folder, Key, LabelStyle, Rule, RuleMode, SettingId, When, Window, BACK_KEY};
 use crate::context::{watch_foreground, ProcessList};
 use crate::icons;
 use crate::rules::{
-    active_rules, host_of, matching_tab, resolve, simulated_context, site_matches, Context, Simulation, Slot, Tabs,
-    BROWSER,
+    active_rules, host_of, matching_tab, resolve, resolve_folder, simulated_context, site_matches, Context, Simulation,
+    Slot, Tabs, BROWSER,
 };
 use crate::config::{Screen, ScreenContent, ScreenHold};
 use crate::screen::{self as visor, NowPlaying, Timer, Usage, UsageSampler};
+use crate::system;
 
 /// Without traffic the device falls back to its screensaver; 1 s also keeps the clock exact.
 const KEEPALIVE: Duration = Duration::from_secs(1);
@@ -48,6 +49,13 @@ const USAGE_POLL: Duration = Duration::from_secs(2);
 const HOLD: Duration = Duration::from_millis(700);
 /// A second tap on the timer this soon after the first resets it.
 const DOUBLE_TAP: Duration = Duration::from_millis(450);
+const SETTING_POLL: Duration = Duration::from_secs(1);
+/// After a key changes a Windows setting, read it this often for a while,
+/// so the key follows quickly (a radio takes about a second to switch).
+const SETTING_FAST_POLL: Duration = Duration::from_millis(200);
+const SETTING_FAST_FOR: Duration = Duration::from_secs(3);
+/// A folder nobody touches goes back to the layout after this long.
+const FOLDER_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Rendered key images by `Look::cache_key`.
 type IconCache = HashMap<String, Option<Vec<u8>>>;
@@ -99,6 +107,8 @@ pub struct Status {
     /// Keys 1 to 14, 14 being the status window.
     pub keys: Vec<KeyStatus>,
     pub screen: ScreenStatus,
+    /// The label of the folder showing in place of the layout.
+    pub folder: Option<String>,
 }
 
 /// The visor as it is now.
@@ -197,9 +207,62 @@ pub fn run(config_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Which two-state keys show their second face: (rule name, key number),
-/// `None` being the default layout. By name so reordering rules keeps it.
-type ToggleId = (Option<String>, u8);
+/// Which two-state keys show their second face: (rule name, folder key,
+/// key number), `None` being the default layout and no folder. By name so
+/// reordering rules keeps it.
+type ToggleId = (Option<String>, Option<u8>, u8);
+
+/// A folder showing on the device in place of the layout.
+struct OpenFolder {
+    /// Where its key is, by rule name, so a config reload finds it again.
+    rule: Option<String>,
+    number: u8,
+    /// The last press, to close a forgotten folder.
+    touched: Instant,
+}
+
+/// What keys show besides their config: states that change on their own.
+#[derive(Default)]
+struct Live {
+    /// Two-state keys showing their second face after a press.
+    toggled: HashSet<ToggleId>,
+    /// Running apps that "open app" keys start (lowercase exe names).
+    apps_running: HashSet<String>,
+    /// Windows settings keys show, as last read (`None`: not on this PC).
+    settings: HashMap<SettingId, Option<bool>>,
+}
+
+impl Live {
+    /// `Some` for a key that shows a Windows setting: its state, if known.
+    fn setting(&self, key: &Key) -> Option<Option<bool>> {
+        let id = key.action.as_ref()?.watched_setting()?;
+        Some(self.settings.get(&id).copied().flatten())
+    }
+
+    /// A key showing a Windows setting has its second face while the setting
+    /// is off, whoever turned it off; any other one after an odd number of presses.
+    fn toggled(&self, config: &Config, slot: &Slot, number: u8) -> bool {
+        if slot.key.toggle.is_none() {
+            return false;
+        }
+        match self.setting(&slot.key) {
+            Some(state) => state == Some(false),
+            None => self.toggled.contains(&toggle_id(config, slot, number)),
+        }
+    }
+
+    /// Darkened: an "open app" key whose app is closed, a setting this PC
+    /// lacks, or a setting that is off on a key with no second face for it.
+    fn dim(&self, key: &Key, face: &Face) -> bool {
+        let closed = face.action.and_then(Action::watched_process).is_some_and(|process| !self.apps_running.contains(&process));
+        let setting = match self.setting(key) {
+            Some(None) => true,
+            Some(Some(false)) => key.toggle.is_none(),
+            _ => false,
+        };
+        closed || setting
+    }
+}
 
 /// What a key looks like and does right now.
 struct Face<'a> {
@@ -235,10 +298,8 @@ fn face(key: &Key, toggled: bool) -> Face<'_> {
     }
 }
 
-/// The image a face makes, with the label style's defaults filled in. An
-/// "open app" key dims while its app is not among `running`.
-fn look<'a>(face: &Face<'a>, style: &'a LabelStyle, default_text: &'a str, running: &HashSet<String>) -> icons::Look<'a> {
-    let dim = face.action.and_then(Action::watched_process).is_some_and(|process| !running.contains(&process));
+/// The image a face makes, with the label style's defaults filled in.
+fn look<'a>(face: &Face<'a>, style: &'a LabelStyle, default_text: &'a str, dim: bool) -> icons::Look<'a> {
     icons::Look {
         dim,
         icon: face.icon,
@@ -257,11 +318,7 @@ fn default_text_color(style: &LabelStyle) -> String {
 }
 
 fn toggle_id(config: &Config, slot: &Slot, number: u8) -> ToggleId {
-    (slot.rule.map(|i| config.rules[i].name.clone()), number)
-}
-
-fn is_toggled(config: &Config, toggled: &HashSet<ToggleId>, slot: &Slot, number: u8) -> bool {
-    slot.key.toggle.is_some() && toggled.contains(&toggle_id(config, slot, number))
+    (slot.rule.map(|i| config.rules[i].name.clone()), slot.folder, number)
 }
 
 struct State {
@@ -288,10 +345,8 @@ struct State {
     resolved: BTreeMap<u8, Slot>,
     /// What the device is showing, to send only the keys that change.
     sent: BTreeMap<usize, KeyView>,
-    /// Two-state keys showing their second face.
-    toggled: HashSet<ToggleId>,
-    /// Running apps that "open app" keys start (lowercase exe names).
-    apps_running: HashSet<String>,
+    live: Live,
+    folder: Option<OpenFolder>,
     icons: IconCache,
     sampler: UsageSampler,
     usage: Usage,
@@ -311,6 +366,9 @@ struct State {
     extension: bool,
     last_config: Instant,
     last_processes: Instant,
+    last_settings: Instant,
+    /// Read settings often until then: a key just changed one.
+    settings_fast_until: Option<Instant>,
     status_dirty: bool,
     last_status: Status,
 }
@@ -354,8 +412,8 @@ impl State {
             pending: None,
             resolved: BTreeMap::new(),
             sent: BTreeMap::new(),
-            toggled: HashSet::new(),
-            apps_running: HashSet::new(),
+            live: Live::default(),
+            folder: None,
             icons: HashMap::new(),
             sampler: UsageSampler::default(),
             usage: Usage::default(),
@@ -372,15 +430,18 @@ impl State {
             extension: false,
             last_config: Instant::now(),
             last_processes: Instant::now(),
+            last_settings: Instant::now(),
+            settings_fast_until: None,
             status_dirty: true,
             last_status: Status::default(),
         };
         state.drain_events();
         state.poll_processes();
         state.active = state.compute_active();
-        state.resolved = resolve(&state.config, &state.active);
-        // Now that the keys are known, see which of their apps run.
+        state.resolved = state.layout();
+        // Now that the keys are known, see which of their apps run and what their settings are.
         state.poll_processes();
+        state.poll_settings();
         state.redraw_screen();
         state
     }
@@ -598,6 +659,19 @@ impl State {
             }
             self.last_processes = Instant::now();
         }
+        let fast = self.settings_fast_until.is_some_and(|until| Instant::now() < until);
+        if self.last_settings.elapsed() >= if fast { SETTING_FAST_POLL } else { SETTING_POLL } {
+            if self.poll_settings() {
+                // Bluetooth went off, another audio output was chosen…: show it.
+                self.sync_keys(device)?;
+            }
+            self.last_settings = Instant::now();
+        }
+        if self.folder.as_ref().is_some_and(|f| f.touched.elapsed() >= FOLDER_TIMEOUT) {
+            info!("pasta fechada: ninguém tocou nela");
+            self.folder = None;
+            self.sync_keys(device)?;
+        }
         self.drain_events();
         let extension = self.browser.is_connected();
         if extension != self.extension {
@@ -616,8 +690,11 @@ impl State {
         self.drain_events();
         self.poll_processes();
         self.active = self.compute_active();
-        self.resolved = resolve(&self.config, &self.active);
+        // Plugged in again: back to the layout, not to a folder from before.
+        self.folder = None;
+        self.resolved = self.layout();
         self.poll_processes();
+        self.poll_settings();
         self.pending = None;
         // The device may have lost power since the last session: send every key.
         self.sent.clear();
@@ -693,9 +770,8 @@ impl State {
             .collect();
         // Both faces of a two-state key, so a press never shows a stale state.
         let key_apps: HashSet<String> = self
-            .resolved
-            .values()
-            .flat_map(|slot| [slot.key.action.as_ref(), slot.key.toggle.as_ref().and_then(|t| t.action.as_ref())])
+            .keys_in_view()
+            .flat_map(|key| [key.action.as_ref(), key.toggle.as_ref().and_then(|t| t.action.as_ref())])
             .flatten()
             .filter_map(Action::watched_process)
             .collect();
@@ -706,11 +782,80 @@ impl State {
             self.context.running = rules_running;
             self.status_dirty = true;
         }
-        if apps_running == self.apps_running {
+        if apps_running == self.live.apps_running {
             return false;
         }
-        self.apps_running = apps_running;
+        self.live.apps_running = apps_running;
         true
+    }
+
+    /// Reads the Windows settings that keys show. True when one changed.
+    fn poll_settings(&mut self) -> bool {
+        let watched: HashSet<SettingId> = self.keys_in_view().filter_map(|key| key.action.as_ref()?.watched_setting()).collect();
+        let settings: HashMap<SettingId, Option<bool>> = watched
+            .into_iter()
+            .map(|id| {
+                let state = system::state(id.0, id.1.as_deref());
+                (id, state)
+            })
+            .collect();
+        if settings == self.live.settings {
+            return false;
+        }
+        self.live.settings = settings;
+        true
+    }
+
+    /// Reads the settings of keys that just came up (a rule that started
+    /// applying), so they don't show as missing until the next poll.
+    fn read_new_settings(&mut self) {
+        let new: Vec<SettingId> = self
+            .resolved
+            .values()
+            .filter_map(|slot| slot.key.action.as_ref()?.watched_setting())
+            .filter(|id| !self.live.settings.contains_key(id))
+            .collect();
+        for id in new {
+            let state = system::state(id.0, id.1.as_deref());
+            self.live.settings.insert(id, state);
+        }
+    }
+
+    /// Every key that may show soon: the layers' (beaten ones too), those in
+    /// their folders and the open folder's, so opening a folder or switching
+    /// rules never shows a key in a stale state.
+    fn keys_in_view(&self) -> impl Iterator<Item = &Key> {
+        // Right after a reload `active` still points into the old rules: skip what is gone.
+        let rules = self.active.iter().filter_map(|&i| self.config.rules.get(i)).flat_map(|rule| rule.keys.values());
+        let layers = self.config.keys.values().chain(rules);
+        let open = self.open_folder().map(|(folder, ..)| folder.keys.values());
+        layers.flat_map(|key| std::iter::once(key).chain(key.folder.iter().flat_map(|f| f.keys.values()))).chain(open.into_iter().flatten())
+    }
+
+    /// What each key does now: the open folder's keys, or the rule layers'.
+    fn layout(&self) -> BTreeMap<u8, Slot> {
+        match self.open_folder() {
+            Some((folder, rule, number)) => resolve_folder(folder, rule, number),
+            None => resolve(&self.config, &self.active),
+        }
+    }
+
+    /// The open folder as the config has it now: the folder, its rule's index
+    /// and its key's number. `None` once its key is gone from the config.
+    fn open_folder(&self) -> Option<(&Folder, Option<usize>, u8)> {
+        let (key, rule) = self.open_folder_key()?;
+        Some((key.folder.as_ref()?, rule, self.folder.as_ref()?.number))
+    }
+
+    fn open_folder_key(&self) -> Option<(&Key, Option<usize>)> {
+        let open = self.folder.as_ref()?;
+        match &open.rule {
+            None => Some((self.config.keys.get(&open.number)?, None)),
+            Some(name) => {
+                let i = self.config.rules.iter().position(|r| &r.name == name)?;
+                Some((self.config.rules[i].keys.get(&open.number)?, Some(i)))
+            }
+        }
     }
 
     fn effective_context(&self) -> Cow<'_, Context> {
@@ -756,7 +901,12 @@ impl State {
     }
 
     fn sync_keys(&mut self, device: Option<&D200>) -> Result<()> {
-        self.resolved = resolve(&self.config, &self.active);
+        if self.folder.is_some() && self.open_folder().is_none() {
+            info!("pasta fechada: ela saiu da config");
+            self.folder = None;
+        }
+        self.resolved = self.layout();
+        self.read_new_settings();
         // A rule with its own visor may have started or stopped.
         self.redraw_screen();
         self.status_dirty = true;
@@ -766,7 +916,7 @@ impl State {
             return Ok(());
         };
         let base = self.config_base();
-        let mut views = build_views(&self.resolved, &base, &mut self.icons, &self.config, &self.toggled, &self.apps_running);
+        let mut views = build_views(&self.resolved, &base, &mut self.icons, &self.config, &self.live);
         // The visor is not a key: it shows the app's drawing, or nothing when the device draws.
         views.insert(WINDOW_INDEX, KeyView { text: String::new(), png: self.screen_png.clone() });
         let changed = changed_keys(&self.sent, &views);
@@ -849,6 +999,7 @@ impl State {
             }
         }
         self.poll_processes();
+        self.poll_settings();
         self.apply_rules(device)?;
         if let Some(device) = device {
             // The visor may have changed between what the device and the app draw.
@@ -861,22 +1012,45 @@ impl State {
         let number = index as u8 + 1;
         let slot = self.resolved.get(&number).cloned();
         let rule = slot.as_ref().and_then(|s| s.rule).map(|i| &self.config.rules[i]);
-        let toggled = slot.as_ref().is_some_and(|s| is_toggled(&self.config, &self.toggled, s, number));
+        let toggled = slot.as_ref().is_some_and(|s| self.live.toggled(&self.config, s, number));
         let current = slot.as_ref().map(|s| face(&s.key, toggled));
+        let in_folder = self.folder.is_some();
+        let back = in_folder && number == BACK_KEY;
+        let opens = slot.as_ref().is_some_and(|s| s.key.folder.is_some());
+        let described = match () {
+            _ if back => Some("voltar".to_string()),
+            _ if opens => Some("abrir pasta".to_string()),
+            _ => current.as_ref().and_then(|f| f.action).map(actions::describe),
+        };
         let activity = Activity {
             number,
             label: current.as_ref().map(|f| f.label.to_string()).unwrap_or_default(),
             rule: rule.map(|r| r.name.clone()),
-            action: current.as_ref().and_then(|f| f.action).map(actions::describe),
+            action: described,
             error: None,
         };
         (self.on_activity)(&activity);
+        if let Some(open) = &mut self.folder {
+            open.touched = Instant::now();
+        }
         let action = current.and_then(|f| f.action.cloned());
         let Some(slot) = slot else {
             info!("tecla {number}: vazia");
             return Ok(());
         };
         let origin = rule.map_or_else(|| "padrão".to_string(), |r| r.name.clone());
+        if back {
+            info!("pasta fechada");
+            self.folder = None;
+            return self.sync_keys(Some(device));
+        }
+        if opens {
+            info!("tecla {number} ({origin}): pasta aberta");
+            let rule = rule.map(|r| r.name.clone());
+            self.folder = Some(OpenFolder { rule, number, touched: Instant::now() });
+            return self.sync_keys(Some(device));
+        }
+        let ran = action.is_some();
         match action {
             None => info!("tecla {number}: sem ação"),
             Some(action) => {
@@ -887,15 +1061,29 @@ impl State {
                     None => String::new(),
                 };
                 info!("tecla {number} ({origin}): {}{place}", actions::describe(&action));
+                if action.watched_setting().is_some() {
+                    self.settings_fast_until = Some(Instant::now() + SETTING_FAST_FOR);
+                }
                 let sink = Arc::clone(&self.on_activity);
                 actions::run(action, front, move |error| sink(&Activity { error: Some(error), ..activity }));
             }
         }
-        if slot.key.toggle.is_some() {
+        let mut changed = false;
+        // A key showing a Windows setting follows the setting, not the presses.
+        if slot.key.toggle.is_some() && self.live.setting(&slot.key).is_none() {
             let id = toggle_id(&self.config, &slot, number);
-            if !self.toggled.remove(&id) {
-                self.toggled.insert(id);
+            if !self.live.toggled.remove(&id) {
+                self.live.toggled.insert(id);
             }
+            changed = true;
+        }
+        // Picking something in a folder closes it, unless it stays open.
+        if ran && in_folder && !self.open_folder().is_some_and(|(folder, ..)| folder.stay) {
+            info!("pasta fechada");
+            self.folder = None;
+            changed = true;
+        }
+        if changed {
             self.sync_keys(Some(device))?;
         }
         Ok(())
@@ -967,32 +1155,42 @@ impl State {
             })
             .collect();
         let base = self.config_base();
+        let in_folder = self.folder.is_some();
         let keys = (1..=KEY_COUNT as u8)
             .map(|number| {
                 let slot = self.resolved.get(&number);
-                let contenders: Vec<usize> =
-                    self.active.iter().copied().filter(|&i| self.config.rules[i].keys.contains_key(&number)).collect();
+                // An open folder is no layer: no rule fights over its keys.
+                let contenders: Vec<usize> = if in_folder {
+                    Vec::new()
+                } else {
+                    self.active.iter().copied().filter(|&i| self.config.rules[i].keys.contains_key(&number)).collect()
+                };
                 let beaten = contenders
                     .split_last()
                     .map(|(_, losers)| losers.iter().map(|&i| self.config.rules[i].name.clone()).collect())
                     .unwrap_or_default();
-                let toggled = slot.is_some_and(|s| is_toggled(&self.config, &self.toggled, s, number));
+                let toggled = slot.is_some_and(|s| self.live.toggled(&self.config, s, number));
                 let current = slot.map(|s| face(&s.key, toggled));
                 let default_text = default_text_color(&self.config.label);
-                let image = current
-                    .as_ref()
-                    .and_then(|f| {
-                        let look = look(f, &self.config.label, &default_text, &self.apps_running);
+                let image = slot
+                    .zip(current.as_ref())
+                    .and_then(|(s, f)| {
+                        let look = look(f, &self.config.label, &default_text, self.live.dim(&s.key, f));
                         cached_icon(&mut self.icons, &look, &base, number as usize)
                     })
                     .map(|png| icons::data_url(&png));
                 let rule = slot.and_then(|s| s.rule).map(|i| &self.config.rules[i]);
+                let action = match () {
+                    _ if in_folder && number == BACK_KEY => Some("voltar".to_string()),
+                    _ if slot.is_some_and(|s| s.key.folder.is_some()) => Some("abrir pasta".to_string()),
+                    _ => current.as_ref().and_then(|f| f.action).map(actions::describe),
+                };
                 KeyStatus {
                     number,
                     toggled,
                     label: current.as_ref().map(|f| f.label.to_string()).unwrap_or_default(),
                     image,
-                    action: current.as_ref().and_then(|f| f.action).map(actions::describe),
+                    action,
                     rule: rule.map(|r| r.name.clone()),
                     mode: rule.map(|r| r.mode),
                     beaten,
@@ -1036,6 +1234,7 @@ impl State {
             rules,
             keys,
             screen,
+            folder: self.open_folder_key().map(|(key, _)| if key.label.is_empty() { "Pasta".to_string() } else { key.label.clone() }),
         }
     }
 }
@@ -1052,8 +1251,7 @@ fn build_views(
     base: &Path,
     cache: &mut IconCache,
     config: &Config,
-    toggled: &HashSet<ToggleId>,
-    apps_running: &HashSet<String>,
+    live: &Live,
 ) -> BTreeMap<usize, KeyView> {
     let default_text = default_text_color(&config.label);
     (0..KEY_COUNT)
@@ -1062,9 +1260,9 @@ fn build_views(
             let view = match resolved.get(&(number as u8)) {
                 None => KeyView::default(),
                 Some(slot) => {
-                    let current = face(&slot.key, is_toggled(config, toggled, slot, number as u8));
+                    let current = face(&slot.key, live.toggled(config, slot, number as u8));
                     // The label is drawn in the image, so each key can have its own colors.
-                    let look = look(&current, &config.label, &default_text, apps_running);
+                    let look = look(&current, &config.label, &default_text, live.dim(&slot.key, &current));
                     KeyView { text: String::new(), png: cached_icon(cache, &look, base, number) }
                 }
             };
@@ -1125,11 +1323,10 @@ mod tests {
         });
         let resolved = resolve(&config, &[]);
         let mut cache = IconCache::new();
-        let mut toggled = HashSet::new();
-        let none = HashSet::new();
-        let off = build_views(&resolved, Path::new("."), &mut cache, &config, &toggled, &none);
-        toggled.insert((None, 1));
-        let on = build_views(&resolved, Path::new("."), &mut cache, &config, &toggled, &none);
+        let mut live = Live::default();
+        let off = build_views(&resolved, Path::new("."), &mut cache, &config, &live);
+        live.toggled.insert((None, None, 1));
+        let on = build_views(&resolved, Path::new("."), &mut cache, &config, &live);
         // Labels are drawn into the images, so the second face is a different image.
         assert_eq!(on[&0].text, "");
         assert_ne!(on[&0].png, off[&0].png);
@@ -1141,11 +1338,52 @@ mod tests {
     fn default_config_renders_every_key() {
         let config = Config::default();
         let mut cache = IconCache::new();
-        let views = build_views(&resolve(&config, &[]), Path::new("."), &mut cache, &config, &HashSet::new(), &HashSet::new());
+        let views = build_views(&resolve(&config, &[]), Path::new("."), &mut cache, &config, &Live::default());
         assert_eq!(views.len(), KEY_COUNT);
         assert!(views[&0].png.is_some());
         assert_eq!(views[&12], KeyView::default());
         // Keys sharing an icon and color share one rendering.
         assert!(cache.len() <= config.keys.len());
+    }
+
+    fn bluetooth_key(second_face: bool) -> Key {
+        let action = Action::System { setting: system::Setting::Bluetooth, set: system::Switch::Toggle, value: None };
+        let toggle = second_face.then(|| crate::config::KeyFace { icon: Some("bluetoothOff".into()), ..Default::default() });
+        Key { icon: Some("bluetooth".into()), action: Some(action), toggle, ..Key::default() }
+    }
+
+    #[test]
+    fn setting_keys_show_the_real_state() {
+        let config = Config::default();
+        let id = (system::Setting::Bluetooth, None);
+        let slot = Slot { key: bluetooth_key(true), rule: None, folder: None };
+        let mut live = Live::default();
+        // Presses don't count: only the setting does.
+        live.toggled.insert((None, None, 1));
+        live.settings.insert(id.clone(), Some(true));
+        assert!(!live.toggled(&config, &slot, 1));
+        live.settings.insert(id.clone(), Some(false));
+        assert!(live.toggled(&config, &slot, 1), "off shows the second face");
+        assert!(!live.dim(&slot.key, &face(&slot.key, true)));
+        live.settings.insert(id.clone(), None);
+        assert!(live.dim(&slot.key, &face(&slot.key, false)), "no Bluetooth on this PC: dimmed");
+        // With no second face, off is shown by dimming.
+        let plain = bluetooth_key(false);
+        live.settings.insert(id, Some(false));
+        assert!(live.dim(&plain, &face(&plain, false)));
+    }
+
+    #[test]
+    fn toggles_in_a_folder_are_kept_apart_from_the_layout() {
+        let mut config = Config::default();
+        let mut mic = config.keys[&1].clone();
+        mic.toggle = Some(crate::config::KeyFace::default());
+        config.keys.insert(1, mic.clone());
+        let layout = Slot { key: mic.clone(), rule: None, folder: None };
+        let inside = Slot { key: mic, rule: None, folder: Some(5) };
+        let mut live = Live::default();
+        live.toggled.insert(toggle_id(&config, &layout, 1));
+        assert!(live.toggled(&config, &layout, 1));
+        assert!(!live.toggled(&config, &inside, 1));
     }
 }

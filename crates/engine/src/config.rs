@@ -6,9 +6,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::actions::parse_hotkey;
 use crate::icons;
+use crate::system::{self, Kind, Setting, Switch};
 
 /// Keys are numbered like on the device: 1 to 13, and 14 for the status window.
 pub const KEY_NUMBERS: std::ops::RangeInclusive<u8> = 1..=14;
+/// In an open folder this key goes back to the layout, so a folder holds keys 2 to 13.
+pub const BACK_KEY: u8 = 1;
+const VISOR_KEY: u8 = 14;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -266,7 +270,19 @@ impl Action {
             _ => Some(exe),
         }
     }
+
+    /// The Windows setting a "system" action changes, when it has a state
+    /// to show on the key (Bluetooth on, this audio output chosen…).
+    pub fn watched_setting(&self) -> Option<SettingId> {
+        match self {
+            Action::System { setting, value, .. } if setting.kind() != Kind::Once => Some((*setting, value.clone())),
+            _ => None,
+        }
+    }
 }
+
+/// A setting and, for those that pick one, the choice a key stands for.
+pub type SettingId = (Setting, Option<String>);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -312,9 +328,25 @@ pub struct Key {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub front: bool,
     /// A second look: each press runs the current action and switches
-    /// between this face and the key's own (microphone on / muted).
+    /// between this face and the key's own (microphone on / muted). With
+    /// a Windows setting, it shows while the setting is off instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub toggle: Option<KeyFace>,
+    /// Pressing it shows these keys in place of the layout, instead of an action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<Folder>,
+}
+
+/// Keys that replace the whole layout while open. Key 1 goes back; using
+/// any other key with an action goes back too, unless the folder `stay`s.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Folder {
+    /// Numbered like the layout's, 2 to 13 (see `BACK_KEY`).
+    #[serde(default)]
+    pub keys: BTreeMap<u8, Key>,
+    /// Stays open after a key runs, for keys used in a row (volume up and down).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub stay: bool,
 }
 
 /// The second state of a two-state key.
@@ -349,7 +381,15 @@ impl Default for Key {
             action: None,
             front: false,
             toggle: None,
+            folder: None,
         }
+    }
+}
+
+impl Key {
+    /// Key 1 of an open folder. The editor draws the same (types.ts `BACK_KEY`).
+    pub fn back() -> Self {
+        Self { label: "Voltar".into(), icon: Some("back".into()), icon_color: Some("#F0A63A".into()), ..Self::default() }
     }
 }
 
@@ -374,6 +414,16 @@ pub enum Action {
     Command { command: String },
     Text { text: String },
     Media { key: MediaKey },
+    /// A Windows setting: Bluetooth, sound, theme, the audio output…
+    System {
+        setting: Setting,
+        /// For on/off settings: switch, or force one state.
+        #[serde(default, skip_serializing_if = "Switch::is_toggle")]
+        set: Switch,
+        /// For settings that pick one: the audio output's name, "extend"…
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -522,6 +572,23 @@ fn validate_key(n: u8, key: &Key) -> Result<()> {
             .and_then(|_| validate_colors([&face.icon_color, &face.text_color, &face.border]))
             .with_context(|| format!("tecla {n}, segundo estado"))?;
     }
+    if let Some(folder) = &key.folder {
+        if n == VISOR_KEY {
+            bail!("o visor não pode ser uma pasta");
+        }
+        if key.action.is_some() || key.toggle.is_some() {
+            bail!("tecla {n}: uma pasta não tem ação nem segundo estado");
+        }
+        for (i, inner) in &folder.keys {
+            if *i == BACK_KEY || *i >= VISOR_KEY {
+                bail!("tecla {n}: a pasta usa as teclas 2 a 13 (a 1 é \"Voltar\"), não a {i}");
+            }
+            if inner.folder.is_some() {
+                bail!("tecla {n}: uma pasta não pode ter outra pasta dentro");
+            }
+            validate_key(*i, inner).with_context(|| format!("tecla {n}, pasta"))?;
+        }
+    }
     Ok(())
 }
 
@@ -568,8 +635,12 @@ fn validate_face(icon: Option<&str>, color: &str, action: Option<&Action>) -> Re
             bail!("ícone {icon:?} não é um ícone embutido nem um arquivo .png");
         }
     }
-    if let Some(Action::Hotkey { keys }) = action {
-        parse_hotkey(keys)?;
+    match action {
+        Some(Action::Hotkey { keys }) => {
+            parse_hotkey(keys)?;
+        }
+        Some(Action::System { setting, value, .. }) => system::validate(*setting, value.as_deref())?,
+        _ => {}
     }
     Ok(())
 }
@@ -672,6 +743,59 @@ mod tests {
         assert_eq!(off.watched_process(), None);
         let json: Action = serde_json::from_str(r#"{ "type": "open", "target": "a.exe" }"#).unwrap();
         assert_eq!(json, open("a.exe"), "watching is on unless turned off");
+    }
+
+    #[test]
+    fn parses_system_actions() {
+        let json = r#"{ "keys": {
+            "1": { "action": { "type": "system", "setting": "bluetooth" } },
+            "2": { "action": { "type": "system", "setting": "microphone", "set": "off" } },
+            "3": { "action": { "type": "system", "setting": "projection", "value": "extend" } },
+            "4": { "action": { "type": "system", "setting": "sleep" } }
+        } }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let bluetooth = Action::System { setting: Setting::Bluetooth, set: Switch::Toggle, value: None };
+        assert_eq!(config.keys[&1].action, Some(bluetooth.clone()));
+        assert_eq!(serde_json::to_string(&bluetooth).unwrap(), r#"{"type":"system","setting":"bluetooth"}"#, "toggle is left out");
+        assert_eq!(bluetooth.watched_setting(), Some((Setting::Bluetooth, None)));
+        let extend = config.keys[&3].action.as_ref().unwrap().watched_setting();
+        assert_eq!(extend, Some((Setting::Projection, Some("extend".into()))));
+        assert_eq!(config.keys[&4].action.as_ref().unwrap().watched_setting(), None, "running once has no state");
+        for bad in [
+            r#"{ "keys": { "1": { "action": { "type": "system", "setting": "projection" } } } }"#,
+            r#"{ "keys": { "1": { "action": { "type": "system", "setting": "power_mode", "value": "turbo" } } } }"#,
+            r#"{ "keys": { "1": { "action": { "type": "system", "setting": "wifi", "value": "x" } } } }"#,
+        ] {
+            assert!(serde_json::from_str::<Config>(bad).unwrap().validate().is_err(), "deveria rejeitar {bad}");
+        }
+    }
+
+    #[test]
+    fn parses_folders() {
+        let json = r#"{ "keys": { "5": { "label": "Sistema", "icon": "folder", "folder": { "keys": {
+            "2": { "label": "BT", "action": { "type": "system", "setting": "bluetooth" } },
+            "13": { "label": "Wi-Fi", "action": { "type": "system", "setting": "wifi" } }
+        } } } } }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let folder = config.keys[&5].folder.as_ref().unwrap();
+        assert_eq!(folder.keys.keys().copied().collect::<Vec<_>>(), [2, 13]);
+        assert!(!folder.stay);
+        let json = serde_json::to_string(&config).unwrap();
+        assert_eq!(serde_json::from_str::<Config>(&json).unwrap(), config);
+        let bad = [
+            // Key 1 is "back".
+            r#"{ "keys": { "5": { "folder": { "keys": { "1": {} } } } } }"#,
+            r#"{ "keys": { "5": { "folder": { "keys": { "14": {} } } } } }"#,
+            r#"{ "keys": { "5": { "folder": { "keys": { "2": { "folder": {} } } } } } }"#,
+            r#"{ "keys": { "5": { "folder": {}, "action": { "type": "text", "text": "x" } } } }"#,
+            r#"{ "keys": { "14": { "folder": {} } } }"#,
+            r#"{ "keys": { "5": { "folder": { "keys": { "2": { "icon": "naoexiste" } } } } } }"#,
+        ];
+        for json in bad {
+            assert!(serde_json::from_str::<Config>(json).unwrap().validate().is_err(), "deveria rejeitar {json}");
+        }
     }
 
     #[test]

@@ -29,18 +29,28 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 
 ## Teclas e visor (depois da Fase 5)
 - **O texto das teclas é desenhado pelo app dentro da imagem** (`icons::render_key`, Segoe UI); o rótulo do aparelho fica desligado (`ShowTitle: false`). Isso permite cor por tecla: `color` (fundo), `icon_color`, `text_color`, `border`. Tamanho e cor padrão do texto vêm de `label` (tamanho × 2,4 px).
-- Tecla de dois estados: `toggle` (um `KeyFace`) alterna a cada toque; o estado vive só na memória do motor, por (nome da regra, número).
+- Tecla de dois estados: `toggle` (um `KeyFace`) alterna a cada toque; o estado vive só na memória do motor, por (nome da regra, tecla da pasta, número). Com uma ação `system`, a segunda face segue o estado real do Windows (ver abaixo).
 - Ação "abrir" de um `.exe` escurece a tecla enquanto o app não roda (`Action::watched_process`; `watch: false` desliga). Explorer não conta; `wt.exe` vira `windowsterminal.exe`.
 - Ícones de app (`icons::app_icon`, via `IShellItemImageFactory`) e de site (favicon do cache do Edge pela extensão, permissão `favicon`) são salvos como PNG em `%APPDATA%\D200Deck\icons`.
 - Visor (`screen.rs`): `config.screen` e `rule.screen`; conteúdos desenhados pelo aparelho (`device_clock`, `device_stats`) ou pelo app (relógio, uso do PC com GPU via PDH, os dois juntos, agora tocando com capa via `GlobalSystemMediaTransportControlsSessionManager`, cronômetro, imagem, texto). Redesenha só quando a assinatura muda. O campo antigo `window` ainda é lido.
 - Toque e segurar no visor (`runtime.rs`): `screen.action` roda no toque; `screen.hold` roda ao segurar 700 ms, ainda com o dedo no visor, e é uma ação (`action`) ou uma sequência de conteúdos (`cycle`, avança um a cada vez e volta ao principal). O passo da sequência fica na memória, por regra. Sem `hold`, segurar conta como toque. No cronômetro, toque inicia/pausa e dois toques em até 450 ms zeram.
 - `cargo run -p deck-engine --bin try-screen -- <pasta>` desenha exemplos de visor e de teclas em PNG para conferir.
 
+## Ajustes do Windows e pastas
+- Ação `{ "type": "system", "setting", "set", "value" }` (`system.rs`). Ligar/desligar (`set`: `toggle` padrão, `on`, `off`): `bluetooth`, `wifi` (`Windows.Devices.Radios`), `microphone` e `sound` (mudo no `IAudioEndpointVolume` do dispositivo padrão; o microfone também no de comunicações), `dark_theme` (registro `Personalize` + `WM_SETTINGCHANGE`), `keep_awake` (requisição de energia, solta quando o app fecha). Escolher (`value`): `audio_output` (nome do dispositivo), `projection` (`internal`/`clone`/`extend`/`external`, `SetDisplayConfig`), `power_mode` (`efficiency`/`balanced`/`performance`). Uma vez: `sleep`, `monitor_off`, `empty_recycle_bin`.
+- APIs não documentadas: `IPolicyConfig` (trocar a saída de áudio, a mesma do EarTrumpet) e `PowerSetActiveOverlayScheme`/`PowerGetEffectiveOverlayScheme` (carregadas na hora; o modo de energia só vale com o plano Equilibrado).
+- **Estado real na tecla:** o motor lê `system::state` a cada 1 s (a cada 200 ms por 3 s depois de um toque) só para os ajustes que alguma tecla visível ou de pasta usa (`Action::watched_setting`). Desligado (ou outra opção em uso) mostra a segunda face; sem segunda face, a tecla escurece. Ajuste que o PC não tem (sem Bluetooth, saída desligada) escurece. Nesse caso o toque não alterna a memória.
+- `system::state` roda na thread do motor, que entra no MTA na primeira chamada; os rádios ficam em cache.
+- Pasta: `"folder": { "keys": { "2": … }, "stay": false }` numa tecla, no lugar de `action`/`toggle`. Aberta, ela toma o lugar de todas as teclas (`rules::resolve_folder`); a tecla 1 é sempre "Voltar" (`config::BACK_KEY`, `Key::back`, espelhado em `types.ts`), então a pasta usa as teclas 2 a 13. Usar uma tecla com ação fecha a pasta (a menos que `stay`), tecla vazia não. Fecha sozinha após 30 s sem toque, ao reconectar o aparelho ou se ela sumir da config. Não há pasta dentro de pasta. As teclas de uma pasta de regra agem como teclas da regra (`front`).
+- Uma pasta aberta fica até ser fechada, mesmo que a regra dela deixe de valer; ela é achada de novo pelo nome da regra a cada recarga da config.
+- `cargo run -p deck-engine --bin try-system -- state` lê todos os ajustes; `-- set <ajuste> [toggle|on|off] [valor]` aplica um (muda o PC de verdade); `-- outputs` lista as saídas de áudio.
+
 ## Interface (depois da Fase 5)
 - Janela sem moldura (`decorations(false)`), barra de título própria com `data-tauri-drag-region`; posição/tamanho lembrados por `tauri-plugin-window-state`.
 - `disable_drag_drop_handler()` é necessário para o arrastar e soltar do HTML funcionar no Windows.
 - Tema claro/escuro por `prefers-color-scheme` (tokens em `app.css`); o D200 virtual é sempre escuro.
 - Desfazer/refazer no `App.svelte` (pilha de snapshots da config, agrupando edições a menos de 800 ms).
+- Pastas no editor: duplo clique numa tecla de pasta (ou "Editar a pasta" no `KeyEditor`) troca a grade do `LayerEditor` pelas teclas da pasta, com "Voltar" fixo na 1 e o visor travado. Escolher um ajuste do Windows sugere texto, ícone e segunda face (`settingLook`), sem apagar o que a pessoa já escolheu.
 
 ## Regras de site (Fase 3)
 - `"when": { "site": "youtube.com" }` casa o domínio e os subdomínios; com `/` ou `*` vira curinga sobre "domínio/caminho" (`github.com/*/pulls`), valendo também para o que estiver abaixo. Esquema, `www.`, porta, query e fragmento são ignorados.

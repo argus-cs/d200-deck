@@ -193,6 +193,14 @@ async fn open_edge_extensions() -> Result<(), String> {
     deck_engine::actions::execute(&action).map_err(|e| format!("{e:#}"))
 }
 
+/// The active audio outputs' names, for the "audio output" setting.
+#[tauri::command]
+async fn audio_outputs() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| deck_engine::system::audio_outputs().map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[derive(Serialize)]
 struct RunningApp {
     exe: String,
@@ -323,6 +331,7 @@ fn main() {
             render_screen,
             glyphs,
             running_apps,
+            audio_outputs,
             pick_image,
             pick_file,
             app_icon,

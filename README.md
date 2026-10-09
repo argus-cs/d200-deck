@@ -4,8 +4,13 @@ App para Windows que substitui o Ulanzi Studio no **Ulanzi D200**. As teclas mud
 
 ## O que faz
 
-- **Teclas** com ícone (89 embutidos, ícone do app, favicon do site ou um PNG seu), texto e cores próprias de fundo, ícone, texto e borda.
+- **Teclas** com ícone (95 embutidos, ícone do app, favicon do site ou um PNG seu), texto e cores próprias de fundo, ícone, texto e borda.
 - **Ações:** atalho de teclado, abrir app, arquivo, pasta ou site, rodar comando, digitar texto e mídia (play/pause, faixa, volume).
+- **Ajustes do Windows**, com o estado real na tecla (ela muda mesmo se você mexer pelo Windows):
+  - **Ligar e desligar:** Bluetooth, Wi-Fi, microfone e som mudos no sistema todo, tema escuro e manter o PC acordado.
+  - **Escolher:** a saída de áudio (fone ou caixa), o modo de projeção (como o Win+P) e o modo de energia.
+  - **Fazer uma vez:** suspender, desligar a tela e esvaziar a lixeira.
+- **Pastas:** uma tecla abre um grupo de até 12 teclas no lugar do layout. Usar uma delas volta ao normal; a tecla 1 volta sem fazer nada. A pasta também pode ficar aberta (para volume, por exemplo).
 - **Regras por app ou por site no Edge**, em dois modos:
   - **Aberto:** vale enquanto o app ou o site estiver aberto.
   - **Foco:** vale só com ele na frente.
@@ -66,6 +71,7 @@ cd app && npm run check                                  # tipos da interface
 cargo run -p d200 --bin probe -- list                    # o aparelho é encontrado?
 cargo run -p deck-engine --bin try-screen -- <pasta>     # desenha exemplos de visor e teclas em PNG
 cargo run -p deck-engine --bin try-open -- <alvo>        # testa a ação "abrir" isolada
+cargo run -p deck-engine --bin try-system -- state       # lê os ajustes do Windows (set <ajuste> muda de verdade)
 ```
 
 O app e o `deckd` não podem rodar juntos, porque os dois usam o aparelho e a porta 47820.
@@ -76,6 +82,7 @@ O app e o `deckd` não podem rodar juntos, porque os dois usam o aparelho e a po
 - Apps UWP (Calculadora, Configurações) aparecem como `ApplicationFrameHost.exe` na janela da frente.
 - Combinações com a tecla Win não podem ser gravadas: digite-as no campo, por exemplo `Win+G`.
 - Uma atualização de firmware pelo Ulanzi Studio pode mudar o protocolo.
+- Trocar a saída de áudio e o modo de energia usa APIs não documentadas do Windows, que uma atualização pode mudar. O modo de energia só tem efeito com o plano Equilibrado.
 
 ## Referências
 

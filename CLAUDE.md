@@ -8,6 +8,16 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 - Protótipo da interface: https://claude.ai/artifact/H6LxuTWJd7RfxFkWPU4y1L
 - Código em inglês; textos da interface em português.
 
+## Fluxo de mudanças
+Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR com o job "Testes" verde (ver "Versões e atualizações").
+1. Partir da `main` atualizada (`git switch main && git pull --ff-only`) e criar uma branch em minúsculo: `feature/…`, `fix/…`, `refactor/…`, `docs/…` ou `ci/…`.
+2. Implementar com testes. Antes do commit, rodar `cargo test -p d200 -p deck-engine` e `npm run check` (em `app`), mais `cargo check -p d200-deck` se o app Tauri mudou. O Rust fica em `%USERPROFILE%\.cargo\bin`.
+3. Atualizar este arquivo e o `README.md` quando a mudança alterar comportamento, comandos, decisões ou armadilhas.
+4. Commit em inglês, com a mensagem aprovada pelo usuário antes de rodar.
+5. `git push -u origin HEAD:refs/heads/<branch>` (nome em minúsculo explícito) e `gh pr create --base main`, com a descrição (Summary, Changes, Testing) aprovada antes.
+6. Acompanhar o "Testes" do PR (`gh run watch <id> --exit-status`) e, se falhar, corrigir na mesma branch. O usuário faz o merge, e a branch remota some sozinha. Depois: `git switch main && git pull --ff-only && git fetch --prune && git branch -d <branch>`.
+7. Para lançar a mudança: subir a versão num PR, criar a tag e publicar o release como descrito em "Versões e atualizações". As notas do release são em português, para quem usa o app, e são aprovadas pelo usuário. Elas também vão para o `latest.json` do release, que sai do CI com o texto provisório.
+
 ## Estrutura
 - `crates/d200/` — driver do protocolo (`protocol.rs`: pacotes; `layout.rs`: zip de layout; `device.rs`: acesso HID).
 - `crates/d200/src/bin/probe.rs` — ferramenta de validação da Fase 0.

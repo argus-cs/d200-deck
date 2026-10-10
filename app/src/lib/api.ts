@@ -17,6 +17,8 @@ export const getConfig = () => invoke<Config>('get_config');
 export const saveConfig = (config: Config) => invoke<Config>('save_config', { config });
 export const glyphs = () => invoke<Glyph[]>('glyphs');
 export const runningApps = () => invoke<RunningApp[]>('running_apps');
+/** Apps with a window open now, leaving out D200 Deck itself. */
+export const otherApps = async () => (await runningApps()).filter((app) => app.exe.toLowerCase() !== 'd200-deck.exe');
 export const audioOutputs = () => invoke<string[]>('audio_outputs');
 
 /** An Iconify set, as the "more icons" window lists it (`iconify::IconSet`). */

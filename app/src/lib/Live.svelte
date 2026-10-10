@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { onActivity, simulate } from './api';
+  import { store, stored } from './storage';
   import Deck from './Deck.svelte';
   import ExtensionGuide from './ExtensionGuide.svelte';
   import Simulator from './Simulator.svelte';
@@ -14,24 +15,12 @@
   let selected = $state(1);
   let lit = $state<number[]>([]);
   let feed = $state<(Activity & { id: number; time: string })[]>([]);
-  let guideDismissed = $state(readDismissed());
+  let guideDismissed = $state(stored(GUIDE_DISMISSED) === '1');
   let nextId = 0;
-
-  function readDismissed() {
-    try {
-      return localStorage.getItem(GUIDE_DISMISSED) === '1';
-    } catch {
-      return false;
-    }
-  }
 
   function dismissGuide() {
     guideDismissed = true;
-    try {
-      localStorage.setItem(GUIDE_DISMISSED, '1');
-    } catch {
-      // Only remembered for this session then.
-    }
+    store(GUIDE_DISMISSED, '1');
   }
 
   onMount(() => {

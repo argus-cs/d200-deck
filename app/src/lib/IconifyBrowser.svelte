@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { iconifyIcons, iconifySamples, iconifySave, iconifySearch, iconifySets, type IconSet, type IconifyIcon } from './api';
   import Icon from './Icon.svelte';
+  import SearchBox from './SearchBox.svelte';
+  import { store, stored } from './storage';
   import { ICON_COLOR, fold } from './types';
 
   let {
@@ -111,21 +113,6 @@
     }
   }
 
-  function readLast() {
-    try {
-      return localStorage.getItem(LAST_SET);
-    } catch {
-      return null;
-    }
-  }
-
-  function rememberLast(prefix: string) {
-    try {
-      localStorage.setItem(LAST_SET, prefix);
-    } catch {
-      // Only remembered while the window is open then.
-    }
-  }
 
   // Loads the next page when the end of the grid comes into view.
   const observer = new IntersectionObserver((entries) => {
@@ -143,7 +130,7 @@
     iconifySets()
       .then((list) => {
         sets = list;
-        const last = list.find((s) => s.prefix === readLast());
+        const last = list.find((s) => s.prefix === stored(LAST_SET));
         if (last) openSet(last);
       })
       .catch((e) => (error = `Não deu para falar com o Iconify: ${e}`));
@@ -182,7 +169,7 @@
     filter = '';
     icons = [];
     total = 0;
-    rememberLast(set.prefix);
+    store(LAST_SET, set.prefix);
     load(0);
   }
 
@@ -240,10 +227,7 @@
 
   <div class="body">
     <aside>
-      <div class="search">
-        <Icon name="search" size={16} />
-        <input type="text" aria-label="Buscar coleção" placeholder={`Buscar entre ${sets.length || ''} coleções`} bind:value={setsQuery} />
-      </div>
+      <SearchBox label="Buscar coleção" placeholder={`Buscar entre ${sets.length || ''} coleções`} bind:value={setsQuery} />
       <ul class="sets scroll">
         {#each groups as group (group.category)}
           <li class="category">{group.category}</li>
@@ -269,19 +253,16 @@
 
     <section>
       <div class="tools">
-        <div class="search grow">
-          <Icon name="search" size={16} />
-          <input
-            type="text"
-            aria-label="Filtrar ícones"
-            placeholder={current ? `Filtrar em ${current.name}` : 'Escolha uma coleção ou busque em todas'}
-            bind:value={filter}
-            oninput={onFilter}
-            onkeydown={(e) => {
-              if (e.key === 'Enter') searchAll();
-            }}
-          />
-        </div>
+        <SearchBox
+          grow
+          label="Filtrar ícones"
+          placeholder={current ? `Filtrar em ${current.name}` : 'Escolha uma coleção ou busque em todas'}
+          bind:value={filter}
+          oninput={onFilter}
+          onkeydown={(e) => {
+            if (e.key === 'Enter') searchAll();
+          }}
+        />
         <button type="button" class="secondary" disabled={!filter.trim() || loading} onclick={searchAll}>Buscar em todas</button>
       </div>
 
@@ -384,18 +365,6 @@
     font-size: 18px;
     font-weight: 600;
   }
-  .icon-btn {
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border-radius: 9px;
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--soft);
-  }
   .body {
     flex: 1 1 auto;
     min-height: 0;
@@ -417,33 +386,6 @@
     flex-direction: column;
     gap: 8px;
     padding: 12px 16px;
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--surface);
-    color: var(--muted);
-  }
-  .search input {
-    flex: 1 1 auto;
-    min-width: 0;
-    border: 0;
-    padding: 8px 0;
-    background: transparent;
-  }
-  .search input:focus-visible {
-    outline: none;
-  }
-  .search:focus-within {
-    outline: 2px solid var(--text);
-    outline-offset: 2px;
-  }
-  .grow {
-    flex: 1 1 auto;
   }
   .tools {
     display: flex;
@@ -501,11 +443,6 @@
   .samples .blank {
     width: 18px;
     height: 18px;
-  }
-  .ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .grid {
     flex: 1 1 auto;

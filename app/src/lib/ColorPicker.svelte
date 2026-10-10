@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { store, storedJson } from './storage';
 
   let {
     value,
@@ -38,28 +39,17 @@
 
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
-  let recent = $state<string[]>(readRecent());
+  let recent = $state<string[]>(storedJson<string[]>(RECENT, []));
   let typed = $state('');
 
   $effect(() => {
     typed = value ?? '';
   });
 
-  function readRecent(): string[] {
-    try {
-      return JSON.parse(localStorage.getItem(RECENT) ?? '[]');
-    } catch {
-      return [];
-    }
-  }
 
   function remember(color: string) {
     recent = [color, ...recent.filter((c) => c !== color)].slice(0, 10);
-    try {
-      localStorage.setItem(RECENT, JSON.stringify(recent));
-    } catch {
-      // Only remembered while the window is open then.
-    }
+    store(RECENT, JSON.stringify(recent));
   }
 
   function choose(color: string | null, keep = true) {
@@ -196,7 +186,7 @@
   }
   .name {
     flex: 1 1 auto;
-    font-weight: 500;
+    font-size: inherit;
   }
   .panel {
     display: flex;
@@ -251,25 +241,12 @@
     flex: none;
   }
   .icon-btn {
-    width: 34px;
-    height: 34px;
     flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
     border-radius: 8px;
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--soft);
-  }
-  .icon-btn:hover {
-    background: var(--hover);
   }
   .small-btn {
-    padding: 6px 10px;
-    font-size: 13px;
     align-self: flex-start;
+    padding: 6px 10px;
   }
   .small-btn[aria-pressed='true'] {
     border-color: var(--accent);

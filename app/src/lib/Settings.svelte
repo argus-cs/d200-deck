@@ -100,11 +100,6 @@
   .card {
     flex: none;
   }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
   label,
   .label {
     font-weight: 500;

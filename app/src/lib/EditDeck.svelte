@@ -220,11 +220,11 @@
   .empty {
     background: var(--device-empty);
     border-style: dashed;
-    border-color: #4a4e57;
+    border-color: var(--device-dashed);
   }
   .inherited {
     border-style: dashed;
-    border-color: #4a4e57;
+    border-color: var(--device-dashed);
   }
   .inherited img {
     opacity: 0.35;

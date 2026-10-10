@@ -3,6 +3,7 @@
   import ColorPicker from './ColorPicker.svelte';
   import Icon from './Icon.svelte';
   import IconPicker from './IconPicker.svelte';
+  import { moveItem } from './list';
   import { screenUrl } from './icons.svelte';
   import {
     SCREEN_TYPES,
@@ -86,8 +87,7 @@
     const contents = screen.hold.contents;
     const to = index + by;
     if (to < 0 || to >= contents.length) return;
-    const [content] = contents.splice(index, 1);
-    contents.splice(to, 0, content);
+    moveItem(contents, index, to);
     if (editing === index) editing = to;
     else if (editing === to) editing = index;
   }
@@ -336,20 +336,8 @@
     font-size: inherit;
     text-decoration: underline;
   }
-  .notice {
-    padding: 14px;
-    border: 1px dashed var(--line-strong);
-    border-radius: 12px;
-    background: var(--surface);
-  }
   .field {
-    display: flex;
-    flex-direction: column;
     gap: 8px;
-  }
-  .name {
-    font-size: 13px;
-    font-weight: 500;
   }
   .types {
     display: grid;
@@ -400,10 +388,6 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
-  }
-  .small-btn {
-    padding: 5px 10px;
-    font-size: 13px;
   }
   .small-btn[aria-pressed='true'] {
     border-color: var(--accent);
@@ -493,20 +477,6 @@
     flex: 0 0 30px;
     width: 30px;
     height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
     border-radius: 8px;
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--soft);
-  }
-  .icon-btn:hover:not(:disabled) {
-    background: var(--hover);
-  }
-  .icon-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
   }
 </style>

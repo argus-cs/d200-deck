@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { audioOutputs, pickFile, runningApps } from './api';
+  import { audioOutputs, otherApps, pickFile } from './api';
   import { hotkeyFrom } from './hotkey';
   import {
     ACTION_TYPES,
@@ -63,7 +63,7 @@
     panel = panel === next ? 'none' : next;
     pickError = null;
     try {
-      if (panel === 'apps') apps = (await runningApps()).filter((a) => a.exe.toLowerCase() !== 'd200-deck.exe');
+      if (panel === 'apps') apps = await otherApps();
       if (panel === 'outputs') outputs = await audioOutputs();
     } catch (e) {
       pickError = String(e);
@@ -291,15 +291,6 @@
 {/if}
 
 <style>
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .name {
-    font-size: 13px;
-    font-weight: 500;
-  }
   .row {
     display: flex;
     align-items: center;
@@ -329,25 +320,8 @@
     flex-wrap: wrap;
     gap: 6px;
   }
-  .segmented {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--line);
-    border-radius: 11px;
-  }
   .segmented button {
     flex: 1 1 0;
-    border: 0;
-    border-radius: 8px;
-    padding: 6px 10px;
-    background: transparent;
-    color: var(--soft);
-    font-weight: 500;
-  }
-  .segmented button[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--ink);
   }
   .check {
     display: flex;
@@ -366,10 +340,6 @@
   .check input {
     margin-top: 3px;
     accent-color: var(--accent);
-  }
-  .small-btn {
-    padding: 5px 10px;
-    font-size: 13px;
   }
   .small-btn[aria-expanded='true'] {
     border-color: var(--accent);
@@ -404,10 +374,5 @@
   }
   .choice span {
     max-width: 100%;
-  }
-  .ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

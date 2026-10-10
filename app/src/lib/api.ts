@@ -1,10 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Activity, Config, Glyph, RunningApp, Screen, Simulation, Status } from './types';
+import type { Activity, Config, Glyph, RunningApp, Screen, ScreenStatus, Simulation, Status } from './types';
 
 export const getStatus = () => invoke<Status>('get_status');
 export const onStatus = (handler: (status: Status) => void) =>
   listen<Status>('status', (event) => handler(event.payload));
+/** Only the visor changed: the status keeps everything else. */
+export const onScreen = (handler: (screen: ScreenStatus) => void) =>
+  listen<ScreenStatus>('screen', (event) => handler(event.payload));
 export const onActivity = (handler: (activity: Activity) => void) =>
   listen<Activity>('activity', (event) => handler(event.payload));
 export const setPaused = (paused: boolean) => invoke('set_paused', { paused });

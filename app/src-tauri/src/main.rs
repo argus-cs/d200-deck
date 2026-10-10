@@ -346,6 +346,7 @@ fn main() {
         .manage(update::Updates::default())
         .setup(move |app| {
             let handle = app.handle().clone();
+            let screen_handle = app.handle().clone();
             let activity_handle = app.handle().clone();
             let engine = runtime::spawn(
                 Config::default_path(),
@@ -353,6 +354,11 @@ fn main() {
                     *handle.state::<DeckState>().status.lock().unwrap() = status.clone();
                     let _ = handle.emit("status", status);
                     tray::update(&handle, status);
+                },
+                // Only the visor changed: a few KB instead of every key's image.
+                move |screen| {
+                    screen_handle.state::<DeckState>().status.lock().unwrap().screen = screen.clone();
+                    let _ = screen_handle.emit("screen", screen);
                 },
                 move |activity| {
                     let _ = activity_handle.emit("activity", activity);

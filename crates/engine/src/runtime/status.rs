@@ -91,15 +91,38 @@ pub struct Activity {
 }
 
 impl State {
+    /// Tells the app what changed: the whole status, or only the visor when
+    /// nothing else did. The visor changes every second or two (a clock, the
+    /// PC's usage), and the keys' images don't need to go again with it.
     pub(super) fn publish(&mut self) {
-        if !self.status_dirty {
-            return;
+        if self.status_dirty {
+            self.status_dirty = false;
+            self.screen_dirty = false;
+            let status = self.build_status();
+            if status != self.last_status {
+                (self.on_status)(&status);
+                self.last_status = status;
+            }
+        } else if self.screen_dirty {
+            self.screen_dirty = false;
+            let screen = self.screen_status();
+            if screen != self.last_status.screen {
+                (self.on_screen)(&screen);
+                self.last_status.screen = screen;
+            }
         }
-        self.status_dirty = false;
-        let status = self.build_status();
-        if status != self.last_status {
-            (self.on_status)(&status);
-            self.last_status = status;
+    }
+
+    /// The visor as it shows now.
+    fn screen_status(&self) -> ScreenStatus {
+        let (screen, rule) = self.current_screen();
+        ScreenStatus {
+            image: self.screen_png.as_deref().map(icons::data_url),
+            content: serde_json::to_value(&screen.content)
+                .ok()
+                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
+                .unwrap_or_default(),
+            rule: rule.map(|i| self.config.rules[i].name.clone()),
         }
     }
 
@@ -181,15 +204,7 @@ impl State {
                 }
             })
             .collect();
-        let (screen, screen_rule) = self.current_screen();
-        let screen = ScreenStatus {
-            image: self.screen_png.as_deref().map(icons::data_url),
-            content: serde_json::to_value(&screen.content)
-                .ok()
-                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
-                .unwrap_or_default(),
-            rule: screen_rule.map(|i| self.config.rules[i].name.clone()),
-        };
+        let screen = self.screen_status();
         let mut edge_tabs: Vec<String> = self.context.tabs.open.iter().filter_map(|t| host_of(&t.url)).collect();
         edge_tabs.sort();
         edge_tabs.dedup();

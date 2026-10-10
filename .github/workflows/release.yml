@@ -17,14 +17,23 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # The signing key lives in this environment, which only v* tags and main
+    # may use: a workflow on any other branch can't read it.
+    environment: release
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to a commit (the version is in the
+      # comment); Dependabot moves them, see .github/dependabot.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # The tag name reaches the scripts as an environment variable, never as
+      # code: a ref may hold quotes and $(…), which would run in this job.
       - name: Check that the tag matches the app version
         if: github.ref_type == 'tag'
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $tag = '${{ github.ref_name }}'.TrimStart('v')
+          $tag = $env:TAG.TrimStart('v')
           $tauri = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $npm = (Get-Content app/package.json -Raw | ConvertFrom-Json).version
           $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
@@ -39,21 +48,25 @@ jobs:
         id: notes
         if: github.ref_type == 'tag'
         shell: pwsh
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          $notes = .github/scripts/changelog-section.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v'))
+          $notes = .github/scripts/changelog-section.ps1 -Version ($env:TAG.TrimStart('v'))
           $footer = 'Instalador para Windows 10/11 (64 bits), sem precisar de administrador. Se o Windows avisar que o instalador não é reconhecido (ele não tem assinatura digital), clique em "Mais informações" → "Executar assim mesmo".'
           $delimiter = "NOTES_$([guid]::NewGuid().ToString('N'))"
           "notes<<$delimiter`n$notes`n`n---`n$footer`n$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install the frontend packages
         working-directory: app
@@ -67,7 +80,7 @@ jobs:
         run: npm run check
 
       - name: Build, and draft the release on a tag
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the installer for the updater (see CLAUDE.md, "Versões e atualizações").
@@ -83,7 +96,7 @@ jobs:
 
       - name: Keep the installer (manual runs)
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: d200-deck-installer
           path: |

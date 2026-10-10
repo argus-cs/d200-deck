@@ -12,12 +12,18 @@ concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Reading the code is all the tests need.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Testes
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # Third-party actions are pinned to a commit (the version is in the
+      # comment); Dependabot moves them, see .github/dependabot.yml.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # A pull request that bumps the version brings its release notes.
       - name: Check CHANGELOG.md has the app version's notes
@@ -26,15 +32,17 @@ jobs:
           $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           .github/scripts/changelog-section.ps1 -Version $version | Out-Null
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install the frontend packages
         working-directory: app

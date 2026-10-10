@@ -23,7 +23,7 @@ jobs:
     steps:
       # Third-party actions are pinned to a commit (the version is in the
       # comment); Dependabot moves them, see .github/dependabot.yml.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The tag name reaches the scripts as an environment variable, never as
       # code: a ref may hold quotes and $(…), which would run in this job.
@@ -56,7 +56,7 @@ jobs:
           $delimiter = "NOTES_$([guid]::NewGuid().ToString('N'))"
           "notes<<$delimiter`n$notes`n`n---`n$footer`n$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -80,7 +80,7 @@ jobs:
         run: npm run check
 
       - name: Build, and draft the release on a tag
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Signs the installer for the updater (see CLAUDE.md, "Versões e atualizações").
@@ -96,7 +96,7 @@ jobs:
 
       - name: Keep the installer (manual runs)
         if: github.ref_type != 'tag'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: d200-deck-installer
           path: |

@@ -17,6 +17,40 @@ export const saveConfig = (config: Config) => invoke('save_config', { config });
 export const glyphs = () => invoke<Glyph[]>('glyphs');
 export const runningApps = () => invoke<RunningApp[]>('running_apps');
 export const audioOutputs = () => invoke<string[]>('audio_outputs');
+
+/** An Iconify set, as the "more icons" window lists it (`iconify::IconSet`). */
+export interface IconSet {
+  prefix: string;
+  name: string;
+  total: number;
+  category: string;
+  author: string;
+  license: string;
+  /** The license asks for credit to the author. */
+  attribution: boolean;
+  /** Icons with their own colors: the key's icon color doesn't apply. */
+  palette: boolean;
+  samples: string[];
+}
+
+export interface IconifyIcon {
+  name: string;
+  svg: string;
+}
+
+export interface IconPage {
+  total: number;
+  icons: IconifyIcon[];
+}
+
+export const iconifySets = () => invoke<IconSet[]>('iconify_sets');
+/** One page of a set; the first call downloads it (then it is kept on disk). */
+export const iconifyIcons = (prefix: string, filter: string, offset: number, limit: number) =>
+  invoke<IconPage>('iconify_icons', { prefix, filter, offset, limit });
+/** Icon ids ("mdi:bluetooth") across every set. */
+export const iconifySearch = (query: string) => invoke<string[]>('iconify_search', { query });
+/** Saves "set:icon" as an SVG for a key; returns the path to store. */
+export const iconifySave = (id: string) => invoke<string>('iconify_save', { id });
 export const pickImage = () => invoke<string | null>('pick_image');
 export const pickFile = () => invoke<string | null>('pick_file');
 export const appIcon = (path: string) => invoke<string>('app_icon', { path });

@@ -631,8 +631,9 @@ fn validate_face(icon: Option<&str>, color: &str, action: Option<&Action>) -> Re
         bail!("color precisa ser #RRGGBB (está {color:?})");
     }
     if let Some(icon) = icon {
-        if icon.is_empty() || (!icons::is_glyph(icon) && !icon.to_ascii_lowercase().ends_with(".png")) {
-            bail!("ícone {icon:?} não é um ícone embutido nem um arquivo .png");
+        let file = icon.to_ascii_lowercase().ends_with(".png") || icons::is_svg(icon);
+        if icon.is_empty() || (!icons::is_glyph(icon) && !file) {
+            bail!("ícone {icon:?} não é um ícone embutido nem um arquivo .png ou .svg");
         }
     }
     match action {

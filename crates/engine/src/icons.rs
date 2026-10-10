@@ -202,9 +202,54 @@ fn render_icon(icon: Option<&str>, color: &str, icon_color: &str, labeled: bool,
         None => encode(RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background)),
         Some(name) => match glyph(name) {
             Some(d) => render_glyph(d, color, icon_color, labeled),
+            None if is_svg(name) => render_svg_file(&base_dir.join(name), background, icon_color, labeled),
             None => render_file(&base_dir.join(name), background),
         },
     }
+}
+
+/// An SVG icon file (from Iconify) rather than a PNG.
+pub fn is_svg(icon: &str) -> bool {
+    icon.to_ascii_lowercase().ends_with(".svg")
+}
+
+/// An SVG file drawn at most `size` pixels wide and high, keeping its
+/// proportions, on transparency. One-color icons paint with `currentColor`,
+/// which becomes `color` like the built-in glyphs; colored ones keep theirs.
+pub fn svg_icon(path: &Path, color: &str, size: u32) -> Result<RgbaImage> {
+    let text = std::fs::read_to_string(path).with_context(|| format!("não consegui abrir {}", path.display()))?;
+    let tree = resvg::usvg::Tree::from_str(&text.replace("currentColor", color), &resvg::usvg::Options::default())
+        .with_context(|| format!("{} não é um SVG válido", path.display()))?;
+    let (width, height) = (tree.size().width(), tree.size().height());
+    let scale = size as f32 / width.max(height);
+    let pixels = |side: f32| ((side * scale).round() as u32).clamp(1, size);
+    let mut pixmap =
+        resvg::tiny_skia::Pixmap::new(pixels(width), pixels(height)).ok_or_else(|| anyhow!("pixmap"))?;
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
+    let mut img = RgbaImage::new(pixmap.width(), pixmap.height());
+    for (dst, src) in img.pixels_mut().zip(pixmap.pixels()) {
+        let c = src.demultiply();
+        *dst = Rgba([c.red(), c.green(), c.blue(), c.alpha()]);
+    }
+    Ok(img)
+}
+
+/// Where the glyphs go: a 100 px square, raised when a label goes below.
+const GLYPH_BOX: u32 = 100;
+const GLYPH_LEFT: u32 = 48;
+
+fn glyph_top(labeled: bool) -> u32 {
+    if labeled { 30 } else { 48 }
+}
+
+/// An SVG icon sits where a built-in glyph would, so both look alike.
+fn render_svg_file(path: &Path, background: Rgba<u8>, icon_color: &str, labeled: bool) -> Result<Vec<u8>> {
+    let icon = svg_icon(path, icon_color, GLYPH_BOX)?;
+    let mut canvas = RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background);
+    let x = GLYPH_LEFT + (GLYPH_BOX - icon.width()) / 2;
+    let y = glyph_top(labeled) + (GLYPH_BOX - icon.height()) / 2;
+    imageops::overlay(&mut canvas, &icon, x.into(), y.into());
+    encode(canvas)
 }
 
 /// The label, one line, shrunk to fit (down to 16 px) and cut with "…" beyond that.
@@ -355,9 +400,9 @@ pub fn app_icon(_exe: &Path) -> Result<Vec<u8>> {
 
 fn render_glyph(d: &str, background: &str, stroke: &str, labeled: bool) -> Result<Vec<u8>> {
     // With a label the glyph moves up to leave it room; alone it is centered.
-    let top = if labeled { 30 } else { 48 };
+    let top = glyph_top(labeled);
     let svg = format!(
-        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}"><rect width="{s}" height="{s}" fill="{background}"/><g transform="translate(48 {top}) scale(4.1667)"><path d="{d}" fill="none" stroke="{stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g></svg>"##,
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}"><rect width="{s}" height="{s}" fill="{background}"/><g transform="translate({GLYPH_LEFT} {top}) scale(4.1667)"><path d="{d}" fill="none" stroke="{stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g></svg>"##,
         s = ICON_SIZE
     );
     let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default())?;
@@ -474,6 +519,26 @@ mod tests {
         assert_eq!(img.dimensions(), (ICON_SIZE, ICON_SIZE));
         assert_eq!(img.get_pixel(98, 98), &Rgba([255, 0, 0, 255]));
         assert_eq!(img.get_pixel(98, 5), &Rgba([0x24, 0x26, 0x2B, 255]));
+    }
+
+    #[test]
+    fn svg_icons_take_the_icon_color_and_keep_their_own() {
+        let dir = std::env::temp_dir().join("deck-engine-svg-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let square = |fill: &str| format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="{fill}" d="M2 2h20v20H2z"/></svg>"#);
+        std::fs::write(dir.join("one.svg"), square("currentColor")).unwrap();
+        std::fs::write(dir.join("colored.svg"), square("#00FF00")).unwrap();
+        let pixel = |icon: &str, x, y| {
+            let png = render(Some(icon), BG, Some("#F0A63A"), &dir).unwrap();
+            image::load_from_memory(&png).unwrap().to_rgba8().get_pixel(x, y).0
+        };
+        // Centered in the glyphs' square, in the icon color.
+        assert_eq!(pixel("one.svg", 98, 98), [0xF0, 0xA6, 0x3A, 255]);
+        assert_eq!(pixel("one.svg", 98, 20), [0x24, 0x26, 0x2B, 255], "the background shows around it");
+        assert_eq!(pixel("colored.svg", 98, 98), [0, 255, 0, 255], "an icon with its own colors keeps them");
+        let bad = dir.join("bad.svg");
+        std::fs::write(&bad, "não é svg").unwrap();
+        assert!(render(Some("bad.svg"), BG, None, &dir).is_err());
     }
 
     #[test]

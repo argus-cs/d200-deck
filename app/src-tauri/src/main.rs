@@ -10,7 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use deck_engine::config::{Action, Config, KeyFace, LabelStyle, Screen};
 use deck_engine::rules::Simulation;
 use deck_engine::runtime::{self, Command, Engine, Status};
-use deck_engine::{context, icons};
+use deck_engine::{context, iconify, icons};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
@@ -194,6 +194,34 @@ async fn open_edge_extensions() -> Result<(), String> {
     deck_engine::actions::execute(&action).map_err(|e| format!("{e:#}"))
 }
 
+/// Downloads and disk work off the main thread, with errors for the window.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || work().map_err(|e| format!("{e:#}"))).await.map_err(|e| e.to_string())?
+}
+
+/// Every Iconify set, for the "more icons" window.
+#[tauri::command]
+async fn iconify_sets() -> Result<Vec<iconify::IconSet>, String> {
+    blocking(|| iconify::sets(&config_dir())).await
+}
+
+/// One page of a set (downloaded the first time it is opened).
+#[tauri::command]
+async fn iconify_icons(prefix: String, filter: String, offset: usize, limit: usize) -> Result<iconify::Page, String> {
+    blocking(move || iconify::icons(&config_dir(), &prefix, &filter, offset, limit)).await
+}
+
+#[tauri::command]
+async fn iconify_search(query: String) -> Result<Vec<String>, String> {
+    blocking(move || iconify::search(&query)).await
+}
+
+/// Saves "set:icon" as an SVG for a key; returns the path to store.
+#[tauri::command]
+async fn iconify_save(id: String) -> Result<String, String> {
+    blocking(move || iconify::save(&config_dir(), &id)).await
+}
+
 /// The active audio outputs' names, for the "audio output" setting.
 #[tauri::command]
 async fn audio_outputs() -> Result<Vec<String>, String> {
@@ -336,6 +364,10 @@ fn main() {
             glyphs,
             running_apps,
             audio_outputs,
+            iconify_sets,
+            iconify_icons,
+            iconify_search,
+            iconify_save,
             pick_image,
             pick_file,
             app_icon,

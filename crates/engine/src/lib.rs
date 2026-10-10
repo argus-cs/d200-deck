@@ -5,6 +5,7 @@ pub mod actions;
 pub mod browser;
 pub mod config;
 pub mod context;
+pub mod iconify;
 pub mod icons;
 pub mod rules;
 pub mod runtime;

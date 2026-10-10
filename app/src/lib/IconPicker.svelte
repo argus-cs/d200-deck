@@ -1,6 +1,7 @@
 <script lang="ts">
   import { appIcon, pickAppIcon, pickImage, runningApps, siteIcon } from './api';
   import Icon from './Icon.svelte';
+  import IconifyBrowser from './IconifyBrowser.svelte';
   import { iconUrl } from './icons.svelte';
   import { fold, type EdgePage, type Glyph, type RunningApp } from './types';
 
@@ -26,6 +27,7 @@
   let apps = $state<RunningApp[]>([]);
   let busy = $state(false);
   let error = $state<string | null>(null);
+  let browsing = $state(false);
 
   const found = $derived(query.trim() ? glyphs.filter((g) => fold(`${g.label} ${g.id}`).includes(fold(query.trim()))) : glyphs);
   const custom = $derived(!!icon && !glyphs.some((g) => g.id === icon));
@@ -78,6 +80,7 @@
   </div>
 
   <div class="row">
+    <button type="button" class="secondary small-btn" onclick={() => (browsing = true)}>Mais ícones…</button>
     <button type="button" class="secondary small-btn" aria-expanded={panel === 'app'} onclick={() => togglePanel('app')}>
       Ícone de app…
     </button>
@@ -133,6 +136,10 @@
     </div>
   {/if}
 </div>
+
+{#if browsing}
+  <IconifyBrowser {color} {iconColor} onpick={(path) => onchange(path)} onclose={() => (browsing = false)} />
+{/if}
 
 <style>
   .picker {

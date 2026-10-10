@@ -13,7 +13,8 @@ export const simulate = (simulation: Simulation | null) => invoke('simulate', { 
 export const openConfig = () => invoke('open_config');
 
 export const getConfig = () => invoke<Config>('get_config');
-export const saveConfig = (config: Config) => invoke('save_config', { config });
+/** Returns the config as written to the file. */
+export const saveConfig = (config: Config) => invoke<Config>('save_config', { config });
 export const glyphs = () => invoke<Glyph[]>('glyphs');
 export const runningApps = () => invoke<RunningApp[]>('running_apps');
 export const audioOutputs = () => invoke<string[]>('audio_outputs');

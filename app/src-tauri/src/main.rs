@@ -68,13 +68,14 @@ fn get_config() -> Result<Config, String> {
 }
 
 /// Validates, writes config.json and has the engine apply it right away.
-/// Nothing reaches the file unless it is valid.
+/// Nothing reaches the file unless it is valid. Returns it as written, so the
+/// window can tell its own save from a hand edit when the engine reloads.
 #[tauri::command]
-fn save_config(state: State<DeckState>, config: Config) -> Result<(), String> {
+fn save_config(state: State<DeckState>, config: Config) -> Result<Config, String> {
     config.validate().map_err(|e| format!("{e:#}"))?;
     config.save(&Config::default_path()).map_err(|e| format!("{e:#}"))?;
     state.send(Command::Reload);
-    Ok(())
+    Ok(config)
 }
 
 /// An icon on a background, as the icon picker shows it.

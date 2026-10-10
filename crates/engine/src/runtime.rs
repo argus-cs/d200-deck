@@ -692,6 +692,9 @@ impl State {
         self.active = self.compute_active();
         // Plugged in again: back to the layout, not to a folder from before.
         self.folder = None;
+        // Nor to a finger on the visor when the cable went: its hold would run
+        // at once, with nobody touching it.
+        self.visor_press = VisorPress::Up;
         self.resolved = self.layout();
         self.poll_processes();
         self.poll_settings();
@@ -952,12 +955,13 @@ impl State {
     fn keepalive(&mut self, device: &D200) -> Result<()> {
         let (screen, _) = self.current_screen();
         let mode = visor::window_mode(&screen);
-        let (cpu, mem) = if mode == WindowMode::Stats {
-            (self.usage.cpu.round() as u8, self.usage.memory.round() as u8)
+        let (cpu, mem, gpu) = if mode == WindowMode::Stats {
+            let gpu = self.usage.gpu.map_or(0, |gpu| gpu.round() as u8);
+            (self.usage.cpu.round() as u8, self.usage.memory.round() as u8, gpu)
         } else {
-            (0, 0)
+            (0, 0, 0)
         };
-        device.set_small_window(mode, cpu, mem, 0)
+        device.set_small_window(mode, cpu, mem, gpu)
     }
 
     fn reload_if_changed(&mut self, device: Option<&D200>) -> Result<()> {
@@ -988,6 +992,12 @@ impl State {
             simulation.focus = simulation.focus.filter(|&i| i < count);
             simulation.open.retain(|&i| i < count);
         }
+        self.poll_processes();
+        self.poll_settings();
+        // Before writing to the device: a write that fails would leave the old
+        // config's rule indices behind, and the next tick would index past the end.
+        self.active = self.compute_active();
+        self.pending = None;
         if let Some(device) = device {
             if old.brightness != self.config.brightness {
                 device.set_brightness(self.config.brightness)?;
@@ -998,9 +1008,8 @@ impl State {
                 self.sent.clear();
             }
         }
-        self.poll_processes();
-        self.poll_settings();
-        self.apply_rules(device)?;
+        self.sync_keys(device)?;
+        self.log_active();
         if let Some(device) = device {
             // The visor may have changed between what the device and the app draw.
             self.keepalive(device)?;
@@ -1054,7 +1063,20 @@ impl State {
         match action {
             None => info!("tecla {number}: sem ação"),
             Some(action) => {
-                let front = rule.filter(|_| slot.key.front).and_then(|r| self.front_for(r));
+                let front = match rule.filter(|_| slot.key.front) {
+                    None => None,
+                    Some(rule) => match self.front_for(rule) {
+                        Some(front) => Some(front),
+                        // No tab of the site to send it to: running anyway would land
+                        // the action on whatever window is in front (text typed into a
+                        // terminal), so nothing happens, toggles and folders included.
+                        None => {
+                            let error = "nenhuma aba aberta do site para receber a ação".to_string();
+                            (self.on_activity)(&Activity { error: Some(error), ..activity });
+                            return Ok(());
+                        }
+                    },
+                };
                 let place = match &front {
                     Some(Front::App(process)) => format!(" em {process}"),
                     Some(Front::Tab { tab, .. }) => format!(" na aba {tab} do Edge"),

@@ -38,7 +38,9 @@
   let saveState = $state<'idle' | 'saving' | 'saved'>('idle');
   let glyphs = $state<Glyph[]>([]);
   let view = $state<View>({ kind: 'live' });
-  let clipboard = $state<Key | null>(null);
+  // Raw: the editors hand over a plain copy, and pasting clones it with
+  // structuredClone, which throws on the proxy a deep $state would make.
+  let clipboard = $state.raw<Key | null>(null);
   let maximized = $state(false);
   let canUndo = $state(false);
   let canRedo = $state(false);
@@ -55,7 +57,9 @@
   let redoStack: string[] = [];
   let lastChangeAt = 0;
   let fromHistory = false;
-  let lastEdit = 0;
+  /** The file as the engine writes it, after our last load or save: when the
+   * engine reloads, anything else in it is a hand edit. */
+  let onDisk = '';
   let saveTimer: ReturnType<typeof setTimeout> | undefined;
   let savedTimer: ReturnType<typeof setTimeout> | undefined;
   let seenRevision = -1;
@@ -63,16 +67,18 @@
   let draggingRule = $state<number | null>(null);
   let overRule = $state<number | null>(null);
 
-  async function loadConfig() {
+  async function loadConfig(loaded?: Config) {
     try {
-      const loaded = await getConfig();
+      loaded ??= await getConfig();
       const json = JSON.stringify(loaded);
+      onDisk = json;
       lastSaved = json;
       current = json;
       undoStack = [];
       redoStack = [];
       syncHistoryButtons();
       config = loaded;
+      keepViewValid();
       loadError = null;
     } catch (e) {
       loadError = String(e);
@@ -133,12 +139,11 @@
     current = json;
     syncHistoryButtons();
     if (json === lastSaved) return;
-    lastEdit = now;
     saveState = 'saving';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
       try {
-        await saveConfig(JSON.parse(json));
+        onDisk = JSON.stringify(await saveConfig(JSON.parse(json)));
         lastSaved = json;
         saveError = null;
         saveState = 'saved';
@@ -151,13 +156,31 @@
     }, 350);
   });
 
-  // Someone edited config.json by hand: reload it, unless it is our own save.
+  // The engine reloaded config.json: if someone edited it by hand, show that.
+  // Our own saves come back as we wrote them, however long the engine took to
+  // announce them (by the clock, a slow reload wiped the undo history).
   $effect(() => {
     const revision = status?.config_revision;
     if (revision === undefined || revision === seenRevision) return;
+    // The first one arrives with the window, right after onMount's load.
+    const first = seenRevision === -1;
     seenRevision = revision;
-    if (Date.now() - lastEdit > 1500) loadConfig();
+    if (!first) reloadIfEdited();
   });
+
+  async function reloadIfEdited() {
+    try {
+      const loaded = await getConfig();
+      if (JSON.stringify(loaded) !== onDisk) loadConfig(loaded);
+    } catch {
+      // Unreadable for a moment: the next revision looks again.
+    }
+  }
+
+  /** The rule being edited may be gone in another version of the config. */
+  function keepViewValid() {
+    if (view.kind === 'rule' && config && !config.rules[view.index]) view = { kind: 'live' };
+  }
 
   function travel(from: string[], to: string[]) {
     const target = from.pop();
@@ -166,8 +189,7 @@
     fromHistory = true;
     lastChangeAt = 0;
     config = JSON.parse(target);
-    // The rule being edited may be gone in the other version.
-    if (view.kind === 'rule' && config && !config.rules[view.index]) view = { kind: 'live' };
+    keepViewValid();
     syncHistoryButtons();
   }
   const undo = () => travel(undoStack, redoStack);

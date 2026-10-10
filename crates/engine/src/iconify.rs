@@ -4,7 +4,12 @@
 //! here, so even emoji sets of tens of megabytes never reach the window
 //! whole. A chosen icon is saved as an SVG beside the other key images, so
 //! the device never needs the network.
+//!
+//! Search results and the sets' samples come through here too, as SVG text,
+//! one request per set: Iconify's server turns away an address that asks for
+//! many single icons (429), as a window of `<img>` straight from it did.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
@@ -23,6 +28,11 @@ const MAX_DOWNLOAD: u64 = 128 * 1024 * 1024;
 /// Sets kept parsed in memory, the last opened first.
 const KEEP_SETS: usize = 3;
 const SEARCH_LIMIT: u32 = 120;
+/// Sets asked for at the same time by `lookup`: a search's 120 results come
+/// from some 40 sets, each request taking up to a second.
+const FETCH_THREADS: usize = 6;
+/// Aliases of aliases, as far as they are followed.
+const MAX_ALIAS_DEPTH: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct IconSet {
@@ -43,9 +53,26 @@ pub struct IconSet {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Icon {
+    /// Its name in the set ("bluetooth"), or its id ("mdi:bluetooth") when
+    /// it comes from several sets.
     pub name: String,
     /// A whole SVG document; one-color icons paint with `currentColor`.
     pub svg: String,
+}
+
+/// A set's icons as SVG files.
+struct Set {
+    /// The ones to browse.
+    icons: Vec<Icon>,
+    /// Aliases (another name for an icon, maybe turned or flipped) and hidden
+    /// icons: searches and older names find them, browsing doesn't show them.
+    extra: Vec<Icon>,
+}
+
+impl Set {
+    fn get(&self, name: &str) -> Option<&Icon> {
+        self.icons.iter().chain(&self.extra).find(|icon| icon.name == name)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -55,20 +82,40 @@ pub struct Page {
     pub icons: Vec<Icon>,
 }
 
-type Loaded = Mutex<Vec<(String, Arc<Vec<Icon>>)>>;
+type Loaded = Mutex<Vec<(String, Arc<Set>)>>;
 
 fn loaded() -> &'static Loaded {
     static LOADED: OnceLock<Loaded> = OnceLock::new();
     LOADED.get_or_init(|| Mutex::new(Vec::new()))
 }
 
+/// Icons `lookup` asked for while the app runs, by id; None when the set has
+/// no such icon. Each one is downloaded once.
+type Fetched = Mutex<HashMap<String, Option<String>>>;
+
+fn fetched() -> &'static Fetched {
+    static FETCHED: OnceLock<Fetched> = OnceLock::new();
+    FETCHED.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-    AGENT.get_or_init(|| ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(30))).build().into())
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(30)))
+            // A connection kept for each of `lookup`'s threads.
+            .max_idle_connections_per_host(FETCH_THREADS)
+            .build()
+            .into()
+    })
 }
 
 fn download(url: &str) -> Result<String> {
-    let mut response = agent().get(url).header("User-Agent", "D200Deck").call().with_context(|| format!("não consegui baixar {url}"))?;
+    let mut response = match agent().get(url).header("User-Agent", "D200Deck").call() {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(429)) => bail!("o Iconify recusou por excesso de pedidos; tente de novo em alguns minutos"),
+        Err(e) => return Err(e).with_context(|| format!("não consegui baixar {url}")),
+    };
     response.body_mut().with_config().limit(MAX_DOWNLOAD).read_to_string().with_context(|| format!("resposta inválida de {url}"))
 }
 
@@ -160,12 +207,12 @@ fn category_rank(category: &str) -> usize {
 pub fn icons(base: &Path, prefix: &str, filter: &str, offset: usize, limit: usize) -> Result<Page> {
     let set = open_set(base, prefix)?;
     let words: Vec<String> = filter.split_whitespace().map(str::to_lowercase).collect();
-    let matching: Vec<&Icon> = set.iter().filter(|icon| words.iter().all(|w| icon.name.contains(w.as_str()))).collect();
+    let matching: Vec<&Icon> = set.icons.iter().filter(|icon| words.iter().all(|w| icon.name.contains(w.as_str()))).collect();
     let icons = matching.iter().skip(offset).take(limit).map(|icon| (*icon).clone()).collect();
     Ok(Page { total: matching.len(), icons })
 }
 
-fn open_set(base: &Path, prefix: &str) -> Result<Arc<Vec<Icon>>> {
+fn open_set(base: &Path, prefix: &str) -> Result<Arc<Set>> {
     check_part(prefix)?;
     if let Some(set) = remembered(prefix) {
         return Ok(set);
@@ -186,7 +233,7 @@ fn open_set(base: &Path, prefix: &str) -> Result<Arc<Vec<Icon>>> {
     Ok(set)
 }
 
-fn remembered(prefix: &str) -> Option<Arc<Vec<Icon>>> {
+fn remembered(prefix: &str) -> Option<Arc<Set>> {
     let mut loaded = loaded().lock().unwrap();
     let at = loaded.iter().position(|(p, _)| p == prefix)?;
     let entry = loaded.remove(at);
@@ -196,62 +243,228 @@ fn remembered(prefix: &str) -> Option<Arc<Vec<Icon>>> {
 }
 
 /// The icons of an IconifyJSON document as SVG files. Sizes default to the
-/// set's (16 when absent). Aliases and hidden icons are left out.
-fn parse_set(text: &str) -> Result<Vec<Icon>> {
+/// set's (16 when absent).
+fn parse_set(text: &str) -> Result<Set> {
     let json: Value = serde_json::from_str(text).context("coleção inválida")?;
-    let number = |v: &Value, key: &str, default: f64| v.get(key).and_then(Value::as_f64).unwrap_or(default);
-    let (width, height) = (number(&json, "width", 16.0), number(&json, "height", 16.0));
-    let (left, top) = (number(&json, "left", 0.0), number(&json, "top", 0.0));
+    let number = |key: &str, default: f64| json.get(key).and_then(Value::as_f64).unwrap_or(default);
+    let defaults = Shape {
+        body: String::new(),
+        left: number("left", 0.0),
+        top: number("top", 0.0),
+        width: number("width", 16.0),
+        height: number("height", 16.0),
+        rotate: 0,
+        h_flip: false,
+        v_flip: false,
+    };
     let icons = json.get("icons").and_then(Value::as_object).ok_or_else(|| anyhow!("coleção sem ícones"))?;
-    Ok(icons
-        .iter()
-        .filter(|(_, icon)| !icon.get("hidden").and_then(Value::as_bool).unwrap_or(false))
-        .filter_map(|(name, icon)| {
-            let body = icon.get("body")?.as_str()?;
-            let view_box = format!(
-                "{} {} {} {}",
-                number(icon, "left", left),
-                number(icon, "top", top),
-                number(icon, "width", width),
-                number(icon, "height", height)
-            );
-            let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{view_box}">{body}</svg>"#);
-            Some(Icon { name: name.clone(), svg })
-        })
-        .collect())
+    let no_aliases = serde_json::Map::new();
+    let aliases = json.get("aliases").and_then(Value::as_object).unwrap_or(&no_aliases);
+    let mut set = Set { icons: Vec::new(), extra: Vec::new() };
+    for (name, props) in icons {
+        if props.get("body").and_then(Value::as_str).is_none() {
+            continue;
+        }
+        let icon = Icon { name: name.clone(), svg: defaults.with(props).svg() };
+        if props.get("hidden").and_then(Value::as_bool).unwrap_or(false) {
+            set.extra.push(icon);
+        } else {
+            set.icons.push(icon);
+        }
+    }
+    for name in aliases.keys() {
+        if let Some(shape) = alias_shape(name, icons, aliases, &defaults, 0) {
+            set.extra.push(Icon { name: name.clone(), svg: shape.svg() });
+        }
+    }
+    Ok(set)
 }
 
-/// Icon ids ("mdi:bluetooth") across every set, as Iconify's search finds them.
-pub fn search(query: &str) -> Result<Vec<String>> {
+/// An alias's parent (itself maybe an alias) with the alias's properties
+/// over it. None when the chain is broken or too long.
+fn alias_shape(name: &str, icons: &serde_json::Map<String, Value>, aliases: &serde_json::Map<String, Value>, defaults: &Shape, depth: usize) -> Option<Shape> {
+    let props = aliases.get(name)?;
+    let parent = props.get("parent")?.as_str()?;
+    let shape = match icons.get(parent) {
+        Some(icon) if icon.get("body").and_then(Value::as_str).is_some() => defaults.with(icon),
+        Some(_) => return None,
+        None if depth < MAX_ALIAS_DEPTH => alias_shape(parent, icons, aliases, defaults, depth + 1)?,
+        None => return None,
+    };
+    Some(shape.with(props))
+}
+
+/// An icon as IconifyJSON describes it, with the set's sizes filled in.
+#[derive(Clone)]
+struct Shape {
+    body: String,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+    /// Quarter turns, clockwise.
+    rotate: i64,
+    h_flip: bool,
+    v_flip: bool,
+}
+
+impl Shape {
+    /// An icon's or alias's own properties over these, merged as Iconify
+    /// does: sizes replace, turns add up, a flip undoes another.
+    fn with(&self, props: &Value) -> Shape {
+        let number = |key: &str, default: f64| props.get(key).and_then(Value::as_f64).unwrap_or(default);
+        let flag = |key: &str| props.get(key).and_then(Value::as_bool).unwrap_or(false);
+        Shape {
+            body: props.get("body").and_then(Value::as_str).map_or_else(|| self.body.clone(), str::to_string),
+            left: number("left", self.left),
+            top: number("top", self.top),
+            width: number("width", self.width),
+            height: number("height", self.height),
+            rotate: self.rotate + props.get("rotate").and_then(Value::as_i64).unwrap_or(0),
+            h_flip: self.h_flip != flag("hFlip"),
+            v_flip: self.v_flip != flag("vFlip"),
+        }
+    }
+
+    /// The SVG document, turned and flipped the way Iconify's renderer
+    /// (`iconToSVG`) does it.
+    fn svg(&self) -> String {
+        let (mut left, mut top, mut width, mut height) = (self.left, self.top, self.width, self.height);
+        let mut turns = self.rotate;
+        let mut transforms = Vec::new();
+        if self.h_flip && self.v_flip {
+            turns += 2;
+        } else if self.h_flip {
+            transforms.push(format!("translate({} {}) scale(-1 1)", width + left, 0.0 - top));
+            (left, top) = (0.0, 0.0);
+        } else if self.v_flip {
+            transforms.push(format!("translate({} {}) scale(1 -1)", 0.0 - left, height + top));
+            (left, top) = (0.0, 0.0);
+        }
+        match turns.rem_euclid(4) {
+            1 => {
+                let center = height / 2.0 + top;
+                transforms.insert(0, format!("rotate(90 {center} {center})"));
+            }
+            2 => transforms.insert(0, format!("rotate(180 {} {})", width / 2.0 + left, height / 2.0 + top)),
+            3 => {
+                let center = width / 2.0 + left;
+                transforms.insert(0, format!("rotate(-90 {center} {center})"));
+            }
+            _ => {}
+        }
+        if turns.rem_euclid(2) == 1 {
+            (left, top) = (top, left);
+            (width, height) = (height, width);
+        }
+        let body = if transforms.is_empty() { self.body.clone() } else { format!(r#"<g transform="{}">{}</g>"#, transforms.join(" "), self.body) };
+        format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="{left} {top} {width} {height}">{body}</svg>"#)
+    }
+}
+
+/// Icons from any sets by id ("mdi:bluetooth"), named by it, in the order
+/// asked; ids that don't exist are left out. One request per set, a few at a
+/// time, and an icon only once while the app runs. Fails only when nothing
+/// could be found and a request failed.
+pub fn lookup(ids: &[String]) -> Result<Vec<Icon>> {
+    let mut wanted: Vec<(&str, Vec<&str>)> = Vec::new();
+    {
+        let known = fetched().lock().unwrap();
+        for id in ids.iter().filter(|id| !known.contains_key(id.as_str())) {
+            let Ok((prefix, name)) = parse_id(id) else { continue };
+            match wanted.iter_mut().find(|(p, _)| *p == prefix) {
+                Some((_, names)) if names.contains(&name) => {}
+                Some((_, names)) => names.push(name),
+                None => wanted.push((prefix, vec![name])),
+            }
+        }
+    }
+    let threads = FETCH_THREADS.min(wanted.len());
+    let queue = Mutex::new(wanted.into_iter());
+    let failure = Mutex::new(None);
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| loop {
+                // The queue is unlocked before downloading.
+                let next = queue.lock().unwrap().next();
+                let Some((prefix, names)) = next else { break };
+                match download(&format!("{API}/{prefix}.json?icons={}", names.join(","))).and_then(|text| parse_set(&text)) {
+                    Ok(set) => {
+                        let mut known = fetched().lock().unwrap();
+                        for name in names {
+                            known.insert(format!("{prefix}:{name}"), set.get(name).map(|icon| icon.svg.clone()));
+                        }
+                    }
+                    Err(e) => {
+                        failure.lock().unwrap().get_or_insert(e);
+                    }
+                }
+            });
+        }
+    });
+    let known = fetched().lock().unwrap();
+    let found: Vec<Icon> = ids.iter().filter_map(|id| Some(Icon { name: id.clone(), svg: known.get(id.as_str())?.clone()? })).collect();
+    match failure.into_inner().unwrap() {
+        Some(e) if found.is_empty() => Err(e),
+        _ => Ok(found),
+    }
+}
+
+/// Icons across every set, as Iconify's search finds them, named by id.
+pub fn search(query: &str) -> Result<Vec<Icon>> {
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
     }
     let text = download(&format!("{API}/search?query={}&limit={SEARCH_LIMIT}", encode(query)))?;
     let json: Value = serde_json::from_str(&text).context("busca inválida")?;
-    Ok(json.get("icons").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default())
+    let ids: Vec<String> = json.get("icons").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+    lookup(&ids)
+}
+
+/// Like `lookup`, but also kept on disk: the samples the list of sets shows
+/// every time the window opens. A failed download only leaves samples out.
+pub fn samples(base: &Path, ids: &[String]) -> Result<Vec<Icon>> {
+    static WRITING: Mutex<()> = Mutex::new(());
+    let path = cache(base).join("samples.json");
+    let read = || -> HashMap<String, String> { std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default() };
+    let mut kept = read();
+    let missing: Vec<String> = ids.iter().filter(|id| !kept.contains_key(id.as_str())).cloned().collect();
+    if !missing.is_empty() {
+        match lookup(&missing) {
+            Ok(found) if !found.is_empty() => {
+                let _writing = WRITING.lock().unwrap();
+                kept = read();
+                kept.extend(found.into_iter().map(|icon| (icon.name, icon.svg)));
+                write_atomic(&path, &serde_json::to_string(&kept)?)?;
+            }
+            Ok(_) => {}
+            Err(e) => log::warn!("amostras do Iconify: {e:#}"),
+        }
+    }
+    Ok(ids.iter().filter_map(|id| Some(Icon { name: id.clone(), svg: kept.get(id.as_str())?.clone() })).collect())
 }
 
 /// Saves an icon ("mdi:bluetooth", as icones.js.org copies it) into the icons
 /// folder and returns the path a key stores ("icons/mdi-bluetooth.svg").
 pub fn save(base: &Path, id: &str) -> Result<String> {
     let (prefix, name) = parse_id(id)?;
-    let icon = find(base, prefix, name)?;
+    let svg = find(base, prefix, name)?;
     let file = format!("{prefix}-{name}.svg");
     std::fs::create_dir_all(base.join("icons"))?;
-    std::fs::write(base.join("icons").join(&file), &icon.svg)?;
+    std::fs::write(base.join("icons").join(&file), svg)?;
     Ok(format!("icons/{file}"))
 }
 
-/// From a set already on disk when there is one, else just this icon from the API.
-fn find(base: &Path, prefix: &str, name: &str) -> Result<Icon> {
+/// An icon's SVG: from its set when that is on disk, else as `lookup` finds it.
+fn find(base: &Path, prefix: &str, name: &str) -> Result<String> {
     let on_disk = remembered(prefix).is_some() || cache(base).join("sets").join(format!("{prefix}.json")).exists();
-    let set = if on_disk {
-        open_set(base, prefix)?
+    let svg = if on_disk {
+        open_set(base, prefix)?.get(name).map(|icon| icon.svg.clone())
     } else {
-        Arc::new(parse_set(&download(&format!("{API}/{prefix}.json?icons={name}"))?)?)
+        lookup(&[format!("{prefix}:{name}")])?.pop().map(|icon| icon.svg)
     };
-    set.iter().find(|icon| icon.name == name).cloned().ok_or_else(|| anyhow!("o ícone {prefix}:{name} não existe"))
+    svg.ok_or_else(|| anyhow!("o ícone {prefix}:{name} não existe"))
 }
 
 /// "mdi:bluetooth" → ("mdi", "bluetooth").
@@ -301,13 +514,94 @@ mod tests {
 
     #[test]
     fn sets_become_svg_files_with_their_sizes() {
-        let icons = parse_set(SET).unwrap();
+        let icons = parse_set(SET).unwrap().icons;
         assert_eq!(icons.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["home", "home-outline"]);
         assert_eq!(icons[0].svg, r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h24v24H0z"/></svg>"#);
         assert!(icons[1].svg.contains(r#"viewBox="-4 0 32 24""#));
         // A set without sizes uses Iconify's 16.
         let small = parse_set(r#"{ "icons": { "a": { "body": "<g/>" } } }"#).unwrap();
-        assert!(small[0].svg.contains(r#"viewBox="0 0 16 16""#));
+        assert!(small.icons[0].svg.contains(r#"viewBox="0 0 16 16""#));
+    }
+
+    #[test]
+    fn aliases_and_hidden_icons_are_found_but_not_browsed() {
+        let set = parse_set(
+            r#"{
+            "width": 24, "height": 24,
+            "icons": { "home": { "body": "<path/>" }, "old": { "body": "<g/>", "hidden": true } },
+            "aliases": {
+                "house": { "parent": "home" },
+                "building": { "parent": "house", "width": 32 },
+                "broken": { "parent": "nothing" },
+                "a": { "parent": "b" }, "b": { "parent": "a" }
+            }
+        }"#,
+        )
+        .unwrap();
+        assert_eq!(set.icons.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["home"]);
+        assert_eq!(set.get("house").unwrap().svg, set.get("home").unwrap().svg);
+        assert!(set.get("building").unwrap().svg.contains(r#"viewBox="0 0 32 24""#));
+        assert!(set.get("old").is_some());
+        for missing in ["broken", "a", "b", "nope"] {
+            assert!(set.get(missing).is_none(), "{missing}");
+        }
+    }
+
+    #[test]
+    fn turns_and_flips_follow_iconify() {
+        let set = parse_set(
+            r#"{
+            "width": 32, "height": 24,
+            "icons": { "arrow": { "body": "<path/>" }, "up": { "body": "<path/>", "rotate": 3 } },
+            "aliases": {
+                "mirror": { "parent": "arrow", "hFlip": true },
+                "upside": { "parent": "arrow", "vFlip": true },
+                "both": { "parent": "arrow", "hFlip": true, "vFlip": true },
+                "right": { "parent": "arrow", "rotate": 1 },
+                "unmirror": { "parent": "mirror", "hFlip": true },
+                "back": { "parent": "up", "rotate": 1 }
+            }
+        }"#,
+        )
+        .unwrap();
+        let svg = |name: &str| set.get(name).unwrap().svg.clone();
+        assert!(svg("mirror").contains(r#"viewBox="0 0 32 24"><g transform="translate(32 0) scale(-1 1)"><path/></g>"#));
+        assert!(svg("upside").contains(r#"<g transform="translate(0 24) scale(1 -1)">"#));
+        assert!(svg("both").contains(r#"viewBox="0 0 32 24"><g transform="rotate(180 16 12)">"#));
+        // A quarter turn swaps the sides.
+        assert!(svg("right").contains(r#"viewBox="0 0 24 32"><g transform="rotate(90 12 12)">"#));
+        assert!(svg("up").contains(r#"viewBox="0 0 24 32"><g transform="rotate(-90 16 16)">"#));
+        // Flipping twice, or turning all the way, leaves the icon as it was.
+        assert_eq!(svg("unmirror"), svg("arrow"));
+        assert_eq!(svg("back"), svg("arrow"));
+    }
+
+    #[test]
+    fn lookups_keep_the_order_and_skip_what_does_not_exist() {
+        {
+            let mut known = fetched().lock().unwrap();
+            known.insert("lookup-test:b".into(), Some("<svg>b</svg>".into()));
+            known.insert("lookup-test:a".into(), Some("<svg>a</svg>".into()));
+            known.insert("lookup-test:none".into(), None);
+        }
+        let ids = ["lookup-test:b", "lookup-test:none", "not an id", "lookup-test:a"].map(String::from);
+        let found = lookup(&ids).unwrap();
+        assert_eq!(found.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["lookup-test:b", "lookup-test:a"]);
+        assert_eq!(found[1].svg, "<svg>a</svg>");
+    }
+
+    #[test]
+    fn samples_stay_on_disk() {
+        let dir = std::env::temp_dir().join("deck-engine-iconify-samples-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        fetched().lock().unwrap().insert("samples-test:home".into(), Some("<svg>home</svg>".into()));
+        fetched().lock().unwrap().insert("samples-test:gone".into(), None);
+        let ids = ["samples-test:home", "samples-test:gone"].map(String::from);
+        assert_eq!(samples(&dir, &ids).unwrap(), [Icon { name: ids[0].clone(), svg: "<svg>home</svg>".into() }]);
+        // Read back from the file once the app forgets it.
+        fetched().lock().unwrap().remove("samples-test:home");
+        assert_eq!(samples(&dir, &ids).unwrap()[0].svg, "<svg>home</svg>");
+        assert!(cache(&dir).join("samples.json").exists());
     }
 
     #[test]
@@ -322,6 +616,9 @@ mod tests {
         assert_eq!(icons(&dir, "demo", "car", 0, 10).unwrap().total, 0);
         assert_eq!(save(&dir, "demo:home").unwrap(), "icons/demo-home.svg");
         assert!(std::fs::read_to_string(dir.join("icons/demo-home.svg")).unwrap().contains("currentColor"));
+        // An alias is saved too, as its icon.
+        assert_eq!(save(&dir, "demo:house").unwrap(), "icons/demo-house.svg");
+        assert!(std::fs::read_to_string(dir.join("icons/demo-house.svg")).unwrap().contains("currentColor"));
     }
 
     #[test]

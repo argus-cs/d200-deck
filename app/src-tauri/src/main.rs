@@ -211,9 +211,16 @@ async fn iconify_icons(prefix: String, filter: String, offset: usize, limit: usi
     blocking(move || iconify::icons(&config_dir(), &prefix, &filter, offset, limit)).await
 }
 
+/// Icons across every set, named by id ("mdi:bluetooth"), with their SVG.
 #[tauri::command]
-async fn iconify_search(query: String) -> Result<Vec<String>, String> {
+async fn iconify_search(query: String) -> Result<Vec<iconify::Icon>, String> {
     blocking(move || iconify::search(&query)).await
+}
+
+/// The sets' samples by id, kept on disk after the first time.
+#[tauri::command]
+async fn iconify_samples(ids: Vec<String>) -> Result<Vec<iconify::Icon>, String> {
+    blocking(move || iconify::samples(&config_dir(), &ids)).await
 }
 
 /// Saves "set:icon" as an SVG for a key; returns the path to store.
@@ -367,6 +374,7 @@ fn main() {
             iconify_sets,
             iconify_icons,
             iconify_search,
+            iconify_samples,
             iconify_save,
             pick_image,
             pick_file,

@@ -34,6 +34,7 @@ export interface IconSet {
 }
 
 export interface IconifyIcon {
+  /** Its name in the set, or its id ("mdi:bluetooth") when from several sets. */
   name: string;
   svg: string;
 }
@@ -47,8 +48,10 @@ export const iconifySets = () => invoke<IconSet[]>('iconify_sets');
 /** One page of a set; the first call downloads it (then it is kept on disk). */
 export const iconifyIcons = (prefix: string, filter: string, offset: number, limit: number) =>
   invoke<IconPage>('iconify_icons', { prefix, filter, offset, limit });
-/** Icon ids ("mdi:bluetooth") across every set. */
-export const iconifySearch = (query: string) => invoke<string[]>('iconify_search', { query });
+/** Icons across every set, named by id ("mdi:bluetooth"). */
+export const iconifySearch = (query: string) => invoke<IconifyIcon[]>('iconify_search', { query });
+/** The sets' samples by id; the ones that couldn't be had are left out. */
+export const iconifySamples = (ids: string[]) => invoke<IconifyIcon[]>('iconify_samples', { ids });
 /** Saves "set:icon" as an SVG for a key; returns the path to store. */
 export const iconifySave = (id: string) => invoke<string>('iconify_save', { id });
 export const pickImage = () => invoke<string | null>('pick_image');

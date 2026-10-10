@@ -323,9 +323,8 @@ fn window_state_flags() -> StateFlags {
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_secs()
-        .init();
+    // Also to a file beside config.json: the installed app has no console.
+    deck_engine::logging::init(&config_dir());
     let hidden = std::env::args().any(|arg| arg == HIDDEN_FLAG);
 
     let app = tauri::Builder::default()

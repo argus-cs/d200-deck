@@ -4,7 +4,7 @@ App para Windows que substitui o Ulanzi Studio no **Ulanzi D200**. As teclas mud
 
 ## O que faz
 
-- **Teclas** com ícone (95 embutidos, ícone do app, favicon do site ou um PNG seu), texto e cores próprias de fundo, ícone, texto e borda.
+- **Teclas** com ícone (95 embutidos, mais de 370 mil do [Iconify](https://iconify.design), a mesma fonte do [Icônes](https://icones.js.org), ícone do app, favicon do site ou um PNG seu), texto e cores próprias de fundo, ícone, texto e borda. As coleções do Iconify são baixadas só quando abertas, e o ícone escolhido fica salvo no PC.
 - **Ações:** atalho de teclado, abrir app, arquivo, pasta ou site, rodar comando, digitar texto e mídia (play/pause, faixa, volume).
 - **Ajustes do Windows**, com o estado real na tecla (ela muda mesmo se você mexer pelo Windows):
   - **Ligar e desligar:** Bluetooth, Wi-Fi, microfone e som mudos no sistema todo, tema escuro e manter o PC acordado.
@@ -81,6 +81,7 @@ cargo run -p d200 --bin probe -- list                    # o aparelho é encontr
 cargo run -p deck-engine --bin try-screen -- <pasta>     # desenha exemplos de visor e teclas em PNG
 cargo run -p deck-engine --bin try-open -- <alvo>        # testa a ação "abrir" isolada
 cargo run -p deck-engine --bin try-system -- state       # lê os ajustes do Windows (set <ajuste> muda de verdade)
+cargo run -p deck-engine --bin try-iconify -- <pasta> sets   # baixa e testa ícones do Iconify numa pasta qualquer
 ```
 
 O app e o `deckd` não podem rodar juntos, porque os dois usam o aparelho e a porta 47820.
@@ -94,6 +95,7 @@ Todo PR para a `main` roda esses testes no GitHub Actions, e o merge só é libe
 - Combinações com a tecla Win não podem ser gravadas: digite-as no campo, por exemplo `Win+G`.
 - Uma atualização de firmware pelo Ulanzi Studio pode mudar o protocolo.
 - Trocar a saída de áudio e o modo de energia usa APIs não documentadas do Windows, que uma atualização pode mudar. O modo de energia só tem efeito com o plano Equilibrado.
+- Escolher ícones do Iconify precisa de internet na primeira vez de cada coleção. Algumas coleções (licença CC BY) pedem crédito ao autor; a janela mostra a licença de cada uma.
 
 ## Referências
 

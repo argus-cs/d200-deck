@@ -328,12 +328,17 @@ fn body(screen: &Screen, content: &ScreenContent, data: &Data) -> String {
     out
 }
 
-/// A PNG of the person's, fitted on the background color.
+/// A PNG of the person's, fitted on the background color, or an SVG icon
+/// at the size and in the color of a built-in glyph.
 fn image_screen(screen: &Screen, path: &Path) -> Result<Vec<u8>> {
     let background = parse_rgb(&screen.background);
     let mut canvas = RgbaImage::from_pixel(WIDTH, HEIGHT, background);
-    let img = image::open(path).map_err(|e| anyhow!("não consegui abrir {}: {e}", path.display()))?;
-    let fitted = img.resize(WIDTH - 24, HEIGHT - 24, imageops::FilterType::Lanczos3).to_rgba8();
+    let fitted = if icons::is_svg(&path.to_string_lossy()) {
+        icons::svg_icon(path, &screen.color, 140)?
+    } else {
+        let img = image::open(path).map_err(|e| anyhow!("não consegui abrir {}: {e}", path.display()))?;
+        img.resize(WIDTH - 24, HEIGHT - 24, imageops::FilterType::Lanczos3).to_rgba8()
+    };
     let x = (WIDTH - fitted.width()) / 2;
     let y = (HEIGHT - fitted.height()) / 2;
     imageops::overlay(&mut canvas, &fitted, x.into(), y.into());

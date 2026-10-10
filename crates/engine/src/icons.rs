@@ -2,15 +2,15 @@
 //! interface prototype) or the user's PNG, on the key's background color.
 //! The label is drawn by the device itself, below the image.
 
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use image::{imageops, DynamicImage, ImageFormat, Rgba, RgbaImage};
+use image::{imageops, DynamicImage, Rgba, RgbaImage};
 
 use d200::protocol::ICON_SIZE;
 
 use crate::config::{Appearance, LabelStyle};
+use crate::draw;
 
 /// Built-in icons: (id kept in config.json, Portuguese words for search,
 /// 24×24 stroke path). Never rename an id: keys point to it.
@@ -199,7 +199,7 @@ pub fn render_key(look: &Look, base_dir: &Path) -> Result<Vec<u8>> {
             }
         }
     }
-    encode(canvas)
+    draw::encode_png(canvas)
 }
 
 /// The frame and the label, on a transparent layer.
@@ -211,10 +211,8 @@ fn decorations(look: &Look, labeled: bool) -> Result<RgbaImage> {
     if labeled {
         over += &label_svg(look.label, look.text_color, look.label_px);
     }
-    rasterize(&format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}">{over}</svg>"#,
-        s = ICON_SIZE
-    ))
+    let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}">{over}</svg>"#, s = ICON_SIZE);
+    draw::svg_to_rgba(&svg, true, ICON_SIZE, ICON_SIZE)
 }
 
 /// Only the icon on its background, as the icon picker shows it.
@@ -223,9 +221,9 @@ pub fn render(icon: Option<&str>, color: &str, icon_color: Option<&str>, base_di
 }
 
 fn render_icon(icon: Option<&str>, color: &str, icon_color: &str, labeled: bool, base_dir: &Path) -> Result<Vec<u8>> {
-    let background = parse_color(color)?;
+    let background = draw::parse_color(color)?;
     match icon {
-        None => encode(RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background)),
+        None => draw::encode_png(RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background)),
         Some(name) => match glyph(name) {
             Some(d) => render_glyph(d, color, icon_color, labeled),
             None if is_svg(name) => render_svg_file(&local_file(base_dir, name)?, background, icon_color, labeled),
@@ -244,20 +242,13 @@ pub fn is_svg(icon: &str) -> bool {
 /// which becomes `color` like the built-in glyphs; colored ones keep theirs.
 pub fn svg_icon(path: &Path, color: &str, size: u32) -> Result<RgbaImage> {
     let text = std::fs::read_to_string(path).with_context(|| format!("não consegui abrir {}", path.display()))?;
-    let tree = resvg::usvg::Tree::from_str(&text.replace("currentColor", color), &svg_options(false))
+    let tree = draw::parse_svg(&text.replace("currentColor", color), false)
         .with_context(|| format!("{} não é um SVG válido", path.display()))?;
     let (width, height) = (tree.size().width(), tree.size().height());
     let scale = size as f32 / width.max(height);
     let pixels = |side: f32| ((side * scale).round() as u32).clamp(1, size);
-    let mut pixmap =
-        resvg::tiny_skia::Pixmap::new(pixels(width), pixels(height)).ok_or_else(|| anyhow!("pixmap"))?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
-    let mut img = RgbaImage::new(pixmap.width(), pixmap.height());
-    for (dst, src) in img.pixels_mut().zip(pixmap.pixels()) {
-        let c = src.demultiply();
-        *dst = Rgba([c.red(), c.green(), c.blue(), c.alpha()]);
-    }
-    Ok(img)
+    let pixmap = draw::render(&tree, pixels(width), pixels(height), resvg::tiny_skia::Transform::from_scale(scale, scale))?;
+    Ok(draw::to_rgba(&pixmap))
 }
 
 /// Where the glyphs go: a 100 px square, raised when a label goes below.
@@ -272,10 +263,8 @@ fn glyph_top(labeled: bool) -> u32 {
 fn render_svg_file(path: &Path, background: Rgba<u8>, icon_color: &str, labeled: bool) -> Result<Vec<u8>> {
     let icon = svg_icon(path, icon_color, GLYPH_BOX)?;
     let mut canvas = RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background);
-    let x = GLYPH_LEFT + (GLYPH_BOX - icon.width()) / 2;
-    let y = glyph_top(labeled) + (GLYPH_BOX - icon.height()) / 2;
-    imageops::overlay(&mut canvas, &icon, x.into(), y.into());
-    encode(canvas)
+    draw::overlay_centered(&mut canvas, &icon, (GLYPH_LEFT, glyph_top(labeled), GLYPH_BOX, GLYPH_BOX));
+    draw::encode_png(canvas)
 }
 
 /// The label, one line, shrunk to fit (down to 16 px) and cut with "…" beyond that.
@@ -290,49 +279,6 @@ fn label_svg(label: &str, color: &str, px: u32) -> String {
         r##"<text x="98" y="179" font-family="Segoe UI" font-size="{size:.0}" font-weight="600" fill="{color}" text-anchor="middle" stroke="#000000" stroke-opacity="0.45" stroke-width="3" stroke-linejoin="round" paint-order="stroke">{}</text>"##,
         escape(&shown)
     )
-}
-
-fn rasterize(svg: &str) -> Result<RgbaImage> {
-    let tree = resvg::usvg::Tree::from_str(svg, &svg_options(true))?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).ok_or_else(|| anyhow!("pixmap"))?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
-    let mut img = RgbaImage::new(ICON_SIZE, ICON_SIZE);
-    for (dst, src) in img.pixels_mut().zip(pixmap.pixels()) {
-        let c = src.demultiply();
-        *dst = Rgba([c.red(), c.green(), c.blue(), c.alpha()]);
-    }
-    Ok(img)
-}
-
-/// Segoe UI from Windows, loaded once. Elsewhere drawings have no text.
-pub(crate) fn fonts() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
-    use std::sync::{Arc, OnceLock};
-    static FONTS: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
-    FONTS
-        .get_or_init(|| {
-            let mut db = resvg::usvg::fontdb::Database::new();
-            let dir = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into());
-            for file in ["segoeui.ttf", "seguisb.ttf", "segoeuib.ttf", "seguisym.ttf"] {
-                if let Ok(data) = std::fs::read(dir.join("Fonts").join(file)) {
-                    db.load_font_data(data);
-                }
-            }
-            Arc::new(db)
-        })
-        .clone()
-}
-
-/// How every SVG here is read. An `<image>` in it may carry its picture
-/// (`data:`), but not point at a file or an address: that is read the moment
-/// the SVG is drawn, and a network path makes Windows hand the user's
-/// credentials to that server. Iconify's files and hand-picked ones alike.
-pub(crate) fn svg_options(with_text: bool) -> resvg::usvg::Options<'static> {
-    let mut options = resvg::usvg::Options::default();
-    options.image_href_resolver.resolve_string = Box::new(|_, _| None);
-    if with_text {
-        options.fontdb = fonts();
-    }
-    options
 }
 
 /// A key's or the visor's image file: relative to the config folder, or an
@@ -370,10 +316,8 @@ pub fn frame(icon: RgbaImage) -> Result<Vec<u8>> {
     const TOP: u32 = 36;
     let fitted = DynamicImage::ImageRgba8(icon).resize(SIZE, SIZE, imageops::FilterType::Lanczos3).to_rgba8();
     let mut canvas = RgbaImage::new(CANVAS, CANVAS);
-    let x = (CANVAS - fitted.width()) / 2;
-    let y = TOP + (SIZE - fitted.height()) / 2;
-    imageops::overlay(&mut canvas, &fitted, x.into(), y.into());
-    encode(canvas)
+    draw::overlay_centered(&mut canvas, &fitted, (0, TOP, CANVAS, SIZE));
+    draw::encode_png(canvas)
 }
 
 /// `frame` for an encoded image (a site's PNG favicon).
@@ -455,41 +399,21 @@ fn render_glyph(d: &str, background: &str, stroke: &str, labeled: bool) -> Resul
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}"><rect width="{s}" height="{s}" fill="{background}"/><g transform="translate({GLYPH_LEFT} {top}) scale(4.1667)"><path d="{d}" fill="none" stroke="{stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g></svg>"##,
         s = ICON_SIZE
     );
-    let tree = resvg::usvg::Tree::from_str(&svg, &svg_options(false))?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).ok_or_else(|| anyhow!("pixmap"))?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
-    Ok(pixmap.encode_png()?)
+    draw::svg_to_png(&svg, false, ICON_SIZE, ICON_SIZE)
 }
 
 fn render_file(path: &Path, background: Rgba<u8>) -> Result<Vec<u8>> {
     let img = image::open(path).with_context(|| format!("não consegui abrir {}", path.display()))?;
     let fitted = img.resize(ICON_SIZE, ICON_SIZE, imageops::FilterType::Lanczos3).to_rgba8();
     let mut canvas = RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background);
-    let x = (ICON_SIZE - fitted.width()) / 2;
-    let y = (ICON_SIZE - fitted.height()) / 2;
-    imageops::overlay(&mut canvas, &fitted, x.into(), y.into());
-    encode(canvas)
+    draw::overlay_centered(&mut canvas, &fitted, (0, 0, ICON_SIZE, ICON_SIZE));
+    draw::encode_png(canvas)
 }
 
 /// A PNG as a data URL, for showing it in the app.
 pub fn data_url(png: &[u8]) -> String {
     use base64::Engine as _;
     format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png))
-}
-
-fn encode(img: RgbaImage) -> Result<Vec<u8>> {
-    let mut png = Vec::new();
-    DynamicImage::ImageRgba8(img).write_to(&mut Cursor::new(&mut png), ImageFormat::Png)?;
-    Ok(png)
-}
-
-fn parse_color(hex: &str) -> Result<Rgba<u8>> {
-    let h = hex.strip_prefix('#').unwrap_or(hex);
-    let byte = |i: usize| u8::from_str_radix(h.get(i..i + 2).unwrap_or("zz"), 16);
-    match (byte(0), byte(2), byte(4)) {
-        (Ok(r), Ok(g), Ok(b)) if h.len() == 6 => Ok(Rgba([r, g, b, 255])),
-        _ => Err(anyhow!("cor inválida: {hex}")),
-    }
 }
 
 #[cfg(test)]
@@ -639,7 +563,7 @@ mod tests {
 
         let dir = std::env::temp_dir().join("deck-engine-svg-href-test");
         std::fs::create_dir_all(&dir).unwrap();
-        let red = encode(RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]))).unwrap();
+        let red = draw::encode_png(RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]))).unwrap();
         let png = dir.join("red.png");
         std::fs::write(&png, &red).unwrap();
         let image = |href: &str| {
@@ -652,9 +576,9 @@ mod tests {
         // drawing off, as here)…
         assert!(loads(&path, &resvg::usvg::Options::default()), "the test file is reachable");
         // …the app's options don't, but keep pictures carried inside the SVG.
-        assert!(!loads(&path, &svg_options(false)));
+        assert!(!loads(&path, &draw::svg_options(false)));
         let inline = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&red));
-        assert!(loads(&inline, &svg_options(false)));
+        assert!(loads(&inline, &draw::svg_options(false)));
     }
 
     #[test]

@@ -3,7 +3,6 @@
 //! drawn at that size (measured on the device).
 
 use std::fmt::Write as _;
-use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,9 +10,10 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Result};
 use chrono::{Datelike, Local, Timelike};
 use d200::protocol::WindowMode;
-use image::{imageops, DynamicImage, ImageFormat, Rgba, RgbaImage};
+use image::{imageops, Rgba, RgbaImage};
 
 use crate::config::{Screen, ScreenContent};
+use crate::draw;
 use crate::icons::{self, escape, fit};
 
 pub const WIDTH: u32 = 458;
@@ -130,10 +130,7 @@ pub fn render(screen: &Screen, data: &Data, base: &Path) -> Result<Option<Vec<u8
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}"><rect width="{WIDTH}" height="{HEIGHT}" fill="{}"/>{body}</svg>"#,
         screen_background(screen, data)
     );
-    let tree = resvg::usvg::Tree::from_str(&svg, &icons::svg_options(true))?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(WIDTH, HEIGHT).ok_or_else(|| anyhow!("pixmap"))?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
-    let png = pixmap.encode_png()?;
+    let png = draw::svg_to_png(&svg, true, WIDTH, HEIGHT)?;
     // The cover is a photo: laid over the drawing rather than drawn in it.
     match (&screen.content, data.playing.and_then(|s| s.art.as_deref())) {
         (ScreenContent::NowPlaying, Some(art)) => Ok(Some(with_cover(&png, art).unwrap_or(png))),
@@ -157,9 +154,7 @@ fn with_cover(png: &[u8], art: &[u8]) -> Result<Vec<u8>> {
             canvas.put_pixel(x + px, y + py, Rgba([pixel[0], pixel[1], pixel[2], 255]));
         }
     }
-    let mut out = Vec::new();
-    DynamicImage::ImageRgba8(canvas).write_to(&mut Cursor::new(&mut out), ImageFormat::Png)?;
-    Ok(out)
+    draw::encode_png(canvas)
 }
 
 fn inside_rounded(x: u32, y: u32, size: u32, radius: u32) -> bool {
@@ -329,7 +324,8 @@ fn body(screen: &Screen, content: &ScreenContent, data: &Data) -> String {
 /// A PNG of the person's, fitted on the background color, or an SVG icon
 /// at the size and in the color of a built-in glyph.
 fn image_screen(screen: &Screen, path: &Path) -> Result<Vec<u8>> {
-    let background = parse_rgb(&screen.background);
+    // Checked when the config loads; the editor's preview may send anything.
+    let background = draw::parse_color(&screen.background).unwrap_or(Rgba([0, 0, 0, 255]));
     let mut canvas = RgbaImage::from_pixel(WIDTH, HEIGHT, background);
     let fitted = if icons::is_svg(&path.to_string_lossy()) {
         icons::svg_icon(path, &screen.color, 140)?
@@ -337,18 +333,8 @@ fn image_screen(screen: &Screen, path: &Path) -> Result<Vec<u8>> {
         let img = image::open(path).map_err(|e| anyhow!("não consegui abrir {}: {e}", path.display()))?;
         img.resize(WIDTH - 24, HEIGHT - 24, imageops::FilterType::Lanczos3).to_rgba8()
     };
-    let x = (WIDTH - fitted.width()) / 2;
-    let y = (HEIGHT - fitted.height()) / 2;
-    imageops::overlay(&mut canvas, &fitted, x.into(), y.into());
-    let mut png = Vec::new();
-    DynamicImage::ImageRgba8(canvas).write_to(&mut Cursor::new(&mut png), ImageFormat::Png)?;
-    Ok(png)
-}
-
-fn parse_rgb(hex: &str) -> Rgba<u8> {
-    let h = hex.trim_start_matches('#');
-    let byte = |i: usize| h.get(i..i + 2).and_then(|b| u8::from_str_radix(b, 16).ok()).unwrap_or(0);
-    Rgba([byte(0), byte(2), byte(4), 255])
+    draw::overlay_centered(&mut canvas, &fitted, (0, 0, WIDTH, HEIGHT));
+    draw::encode_png(canvas)
 }
 
 const WEEKDAYS: [&str; 7] = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
@@ -672,6 +658,8 @@ mod win {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use image::{DynamicImage, ImageFormat};
+    use std::io::Cursor;
 
     fn data<'a>(usage: &'a Usage, timer: &'a Timer, playing: Option<&'a NowPlaying>) -> Data<'a> {
         Data { now: Local.with_ymd_and_hms(2026, 10, 8, 16, 5, 9).unwrap(), usage, playing, timer }

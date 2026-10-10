@@ -45,9 +45,9 @@ O `tauri build` assina o instalador para as atualizações e precisa da chave pr
 
 ## Publicar uma versão
 
-1. Num PR, suba a versão em `Cargo.toml`, `app/src-tauri/tauri.conf.json` e `app/package.json` (`npm version X.Y.Z --no-git-tag-version` na pasta `app`).
+1. Num PR, suba a versão em `Cargo.toml`, `app/src-tauri/tauri.conf.json` e `app/package.json` (`npm version X.Y.Z --no-git-tag-version` na pasta `app`) e escreva a seção da versão no [`CHANGELOG.md`](CHANGELOG.md). Sem ela, o "Testes" do PR falha.
 2. Depois do merge, crie a tag na `main`: `git tag vX.Y.Z` e `git push origin vX.Y.Z`.
-3. O GitHub Actions gera o instalador e cria o release como rascunho. Escreva as notas e publique: os apps instalados passam a oferecer a atualização.
+3. O GitHub Actions gera o instalador e cria o release como rascunho, já com as notas do `CHANGELOG.md`. Publique: os apps instalados passam a oferecer a atualização.
 
 ## Extensão do Edge (regras de site)
 

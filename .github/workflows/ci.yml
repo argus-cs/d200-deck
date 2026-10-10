@@ -1,5 +1,6 @@
-# Runs on every pull request to main. The "Proteger a main" ruleset requires
-# the "Testes" job to pass before a pull request can be merged.
+# Runs on every pull request to main: the app version must have its notes in
+# CHANGELOG.md, then the tests and checks. The "Proteger a main" ruleset
+# requires the "Testes" job to pass before a pull request can be merged.
 name: CI
 
 on:
@@ -17,6 +18,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      # A pull request that bumps the version brings its release notes.
+      - name: Check CHANGELOG.md has the app version's notes
+        shell: pwsh
+        run: |
+          $version = (Get-Content app/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          .github/scripts/changelog-section.ps1 -Version $version | Out-Null
 
       - uses: actions/setup-node@v4
         with:

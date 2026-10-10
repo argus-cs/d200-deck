@@ -469,3 +469,13 @@ export function opensApp(target: string): boolean {
 export function ruleTarget(rule: Rule): { kind: 'app' | 'site'; target: string } {
   return 'process' in rule.when ? { kind: 'app', target: rule.when.process } : { kind: 'site', target: rule.when.site };
 }
+
+/** A name no rule has yet: `wanted`, or it with " (2)", " (3)"… The engine
+ * tells rules apart by name (open folder, two-state keys) and refuses repeats. */
+export function freeRuleName(rules: Rule[], wanted: string): string {
+  const taken = new Set(rules.map((rule) => rule.name));
+  if (!taken.has(wanted)) return wanted;
+  let n = 2;
+  while (taken.has(`${wanted} (${n})`)) n++;
+  return `${wanted} (${n})`;
+}

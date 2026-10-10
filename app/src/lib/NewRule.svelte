@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { runningApps } from './api';
+  import { otherApps } from './api';
   import ExtensionGuide from './ExtensionGuide.svelte';
   import Icon from './Icon.svelte';
   import type { Mode, Rule } from './types';
@@ -21,8 +21,7 @@
   let name = $state('');
 
   async function loadApps() {
-    const found = await runningApps();
-    apps = found.filter((a) => a.exe.toLowerCase() !== 'd200-deck.exe');
+    apps = await otherApps();
   }
   onMount(loadApps);
 
@@ -175,27 +174,11 @@
     justify-content: space-between;
     gap: 12px;
   }
-  .segmented {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--line);
-    border-radius: 11px;
-  }
   .segmented button {
     display: flex;
     align-items: center;
     gap: 8px;
-    border: 0;
-    border-radius: 8px;
     padding: 7px 14px;
-    background: transparent;
-    color: var(--soft);
-    font-weight: 500;
-  }
-  .segmented button[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--ink);
   }
   .box {
     background: var(--raised);
@@ -258,15 +241,6 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-  }
-  .ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .name {
-    font-size: 13px;
-    font-weight: 500;
   }
   .label-caps {
     font-size: 12px;

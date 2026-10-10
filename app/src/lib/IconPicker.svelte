@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { appIcon, pickAppIcon, pickImage, runningApps, siteIcon } from './api';
-  import Icon from './Icon.svelte';
+  import { appIcon, otherApps, pickAppIcon, pickImage, siteIcon } from './api';
   import IconifyBrowser from './IconifyBrowser.svelte';
   import { iconUrl } from './icons.svelte';
+  import SearchBox from './SearchBox.svelte';
   import { fold, type EdgePage, type Glyph, type RunningApp } from './types';
 
   let {
@@ -52,15 +52,12 @@
   async function togglePanel(next: 'app' | 'site') {
     error = null;
     panel = panel === next ? 'none' : next;
-    if (panel === 'app') apps = (await runningApps()).filter((a) => a.exe.toLowerCase() !== 'd200-deck.exe');
+    if (panel === 'app') apps = await otherApps();
   }
 </script>
 
 <div class="picker">
-  <div class="search">
-    <Icon name="search" size={16} />
-    <input type="text" aria-label="Buscar ícone" placeholder={`Buscar entre ${glyphs.length} ícones`} bind:value={query} />
-  </div>
+  <SearchBox label="Buscar ícone" placeholder={`Buscar entre ${glyphs.length} ícones`} bind:value={query} />
   <div class="glyphs scroll">
     {#each found as glyph (glyph.id)}
       {@const url = iconUrl(glyph.id, color, iconColor)}
@@ -147,29 +144,6 @@
     flex-direction: column;
     gap: 8px;
   }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 10px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--surface);
-    color: var(--muted);
-  }
-  .search input {
-    flex: 1 1 auto;
-    border: 0;
-    padding: 8px 0;
-    background: transparent;
-  }
-  .search input:focus-visible {
-    outline: none;
-  }
-  .search:focus-within {
-    outline: 2px solid var(--text);
-    outline-offset: 2px;
-  }
   .glyphs {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -204,7 +178,6 @@
   }
   .small-btn {
     padding: 6px 10px;
-    font-size: 13px;
   }
   .small-btn[aria-pressed='true'],
   .small-btn[aria-expanded='true'] {
@@ -246,11 +219,6 @@
   }
   .choice span {
     max-width: 100%;
-  }
-  .ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .current {
     display: flex;

@@ -2,6 +2,7 @@
   import EditDeck from './EditDeck.svelte';
   import Icon from './Icon.svelte';
   import KeyEditor from './KeyEditor.svelte';
+  import { moveItem } from './list';
   import ScreenEditor from './ScreenEditor.svelte';
   import { defaultScreen, freeRuleName, ruleTarget, type Config, type EdgePage, type Glyph, type Key, type Mode } from './types';
 
@@ -71,8 +72,7 @@
     if (index === null) return;
     const to = index + delta;
     if (to < 0 || to >= config.rules.length) return;
-    const [moved] = config.rules.splice(index, 1);
-    config.rules.splice(to, 0, moved);
+    moveItem(config.rules, index, to);
     onmoved(to);
   }
 
@@ -367,12 +367,6 @@
     font-size: 18px;
     font-weight: 600;
   }
-  .notice {
-    padding: 14px;
-    border: 1px dashed var(--line-strong);
-    border-radius: 12px;
-    background: var(--surface);
-  }
   .rule-head {
     display: flex;
     flex-direction: column;
@@ -423,24 +417,8 @@
   .when input {
     min-width: 220px;
   }
-  .segmented {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--line);
-    border-radius: 11px;
-  }
   .segmented button {
-    border: 0;
-    border-radius: 8px;
     padding: 6px 14px;
-    background: transparent;
-    color: var(--soft);
-    font-weight: 500;
-  }
-  .segmented button[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--ink);
   }
   .soft {
     color: var(--soft);
@@ -493,7 +471,7 @@
     background: var(--device-key);
   }
   .swatch.inherited {
-    border: 1px dashed #4a4e57;
+    border: 1px dashed var(--device-dashed);
     background: var(--device-empty);
   }
 </style>

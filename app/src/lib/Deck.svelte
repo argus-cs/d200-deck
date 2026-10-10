@@ -104,7 +104,7 @@
   .empty {
     background: var(--device-empty);
     border-style: dashed;
-    border-color: #4a4e57;
+    border-color: var(--device-dashed);
   }
   .from-rule {
     border: 2px solid var(--accent);

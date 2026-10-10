@@ -316,40 +316,6 @@
     display: flex;
     gap: 6px;
   }
-  .icon-btn {
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    border-radius: 9px;
-    border: 1px solid var(--line-strong);
-    background: transparent;
-    color: var(--soft);
-  }
-  .icon-btn:hover:not(:disabled) {
-    background: var(--hover);
-  }
-  .icon-btn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-  .notice {
-    padding: 14px;
-    border: 1px dashed var(--line-strong);
-    border-radius: 12px;
-    background: var(--surface);
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .name {
-    font-size: 13px;
-    font-weight: 500;
-  }
   input[type='text'] {
     width: 100%;
   }
@@ -381,25 +347,8 @@
   .folder .primary {
     flex: none;
   }
-  .segmented {
-    display: flex;
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--line);
-    border-radius: 11px;
-  }
   .segmented button {
     flex: 1 1 0;
-    border: 0;
-    border-radius: 8px;
-    padding: 6px 10px;
-    background: transparent;
-    color: var(--soft);
-    font-weight: 500;
-  }
-  .segmented button[aria-pressed='true'] {
-    background: var(--accent);
-    color: var(--ink);
   }
   .second {
     display: flex;

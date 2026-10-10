@@ -87,8 +87,4 @@
     user-select: all;
     word-break: break-all;
   }
-  .small-btn {
-    padding: 5px 10px;
-    font-size: 13px;
-  }
 </style>

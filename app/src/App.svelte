@@ -18,6 +18,7 @@
     type Update,
   } from './lib/api';
   import Icon from './lib/Icon.svelte';
+  import { moveItem } from './lib/list';
   import LayerEditor from './lib/LayerEditor.svelte';
   import Live from './lib/Live.svelte';
   import NewRule from './lib/NewRule.svelte';
@@ -223,8 +224,7 @@
   function moveRule(from: number, to: number) {
     if (!config || from === to) return;
     const editing = view.kind === 'rule' ? config.rules[view.index] : null;
-    const [moved] = config.rules.splice(from, 1);
-    config.rules.splice(to, 0, moved);
+    moveItem(config.rules, from, to);
     if (editing) view = { kind: 'rule', index: config.rules.indexOf(editing) };
   }
 
@@ -683,11 +683,6 @@
   .valid .led {
     width: 6px;
     height: 6px;
-  }
-  .ellipsis {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .spacer {
     flex: 1 1 auto;

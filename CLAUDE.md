@@ -73,7 +73,8 @@ Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR 
 ## Interface (depois da Fase 5)
 - Janela sem moldura (`decorations(false)`), barra de título própria com `data-tauri-drag-region`; posição/tamanho lembrados por `tauri-plugin-window-state`.
 - `disable_drag_drop_handler()` é necessário para o arrastar e soltar do HTML funcionar no Windows.
-- Tema claro/escuro por `prefers-color-scheme` (tokens em `app.css`); o D200 virtual é sempre escuro.
+- Tema claro/escuro por `prefers-color-scheme` (tokens em `app.css`); o D200 virtual é sempre escuro (tokens `--device-*`).
+- Classes que os editores compartilham (`.field`, `.name`, `.notice`, `.ellipsis`, `.small-btn`, `.icon-btn`, `.segmented`) ficam no fim do `app.css`, e o componente só define o que difere (a regra com escopo vence a global). Antes de mover outra para lá: todo componente que usa a classe precisa já defini-la, senão ganha estilo novo; e a global de mesma especificidade que outra (`.small-btn` vem sempre com `.secondary`) precisa vir depois dela no arquivo. Helpers do frontend: `SearchBox.svelte` (busca com lupa), `storage.ts` (`stored`/`storedJson`/`store`: localStorage que falha em silêncio), `list.ts` (`moveItem`) e `otherApps()` no `api.ts` (apps abertos menos o próprio D200 Deck).
 - Desfazer/refazer no `App.svelte` (pilha de snapshots da config, agrupando edições a menos de 800 ms).
 - Pastas no editor: duplo clique numa tecla de pasta (ou "Editar a pasta" no `KeyEditor`) troca a grade do `LayerEditor` pelas teclas da pasta, com "Voltar" fixo na 1 e o visor travado. Escolher um ajuste do Windows sugere texto, ícone e segunda face (`settingLook`), sem apagar o que a pessoa já escolheu.
 

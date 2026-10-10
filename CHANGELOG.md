@@ -2,6 +2,21 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.2 — 2026-10-10
+
+### Correções
+- "Colar tecla" (o botão e o Ctrl+V) voltou a funcionar
+- Desfazer não perde mais o histórico logo depois de uma edição: quando o app demorava um pouco para recarregar a config, ele achava que ela tinha mudado por fora e zerava o histórico
+- Gravar um atalho e trocar de tecla no meio não prende mais o teclado: a próxima tecla digitada em qualquer campo era engolida e gravada na tecla anterior
+- Uma tecla de site que traz a aba para a frente não executa mais a ação no app que estiver na frente quando o site não está aberto; agora ela não faz nada e a janela avisa
+- O visor "uso do PC" desenhado pelo próprio D200 passa a mostrar o uso do GPU, que ficava sempre em 0
+- Se o cabo sair com o dedo no visor, a ação de segurar não dispara mais sozinha ao reconectar
+- Corrigida uma falha rara em que o app parava de controlar o D200 ao recarregar a config no mesmo instante em que a conexão caía
+- Se a regra aberta no editor some porque o config.json foi editado à mão, a janela volta para "Ao vivo" em vez de ficar em branco
+
+### Ao atualizar
+- Quem tem a 0.3.0 ou a 0.3.1 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações.
+
 ## 0.3.1 — 2026-10-10
 
 ### Correções

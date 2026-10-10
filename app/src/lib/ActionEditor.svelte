@@ -45,7 +45,16 @@
   ];
 
   let recording = $state(false);
+  /** Ends the recording in progress. */
+  let stopRecording: (() => void) | null = null;
   let panel = $state<'none' | 'apps' | 'sites' | 'outputs'>('none');
+
+  // A recording belongs to the action it started on: picking another key or
+  // leaving the editor ends it, or the next key typed anywhere would be taken.
+  $effect(() => {
+    void action;
+    return () => stopRecording?.();
+  });
   let apps = $state<RunningApp[]>([]);
   let outputs = $state<string[]>([]);
   let pickError = $state<string | null>(null);
@@ -114,6 +123,7 @@
   function record() {
     const current = action;
     if (current?.type !== 'hotkey') return;
+    stopRecording?.();
     recording = true;
     const onKey = (event: KeyboardEvent) => {
       event.preventDefault();
@@ -129,8 +139,10 @@
     };
     const stop = () => {
       recording = false;
+      stopRecording = null;
       window.removeEventListener('keydown', onKey, true);
     };
+    stopRecording = stop;
     window.addEventListener('keydown', onKey, true);
   }
 </script>

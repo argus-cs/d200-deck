@@ -466,6 +466,9 @@ export function opensApp(target: string): boolean {
   return name.endsWith('.exe') || (name.length > 0 && !name.includes('.'));
 }
 
+/** Which page the window shows. */
+export type View = { kind: 'live' } | { kind: 'default' } | { kind: 'rule'; index: number } | { kind: 'new' } | { kind: 'settings' };
+
 export function ruleTarget(rule: Rule): { kind: 'app' | 'site'; target: string } {
   return 'process' in rule.when ? { kind: 'app', target: rule.when.process } : { kind: 'site', target: rule.when.site };
 }

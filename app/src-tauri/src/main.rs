@@ -88,18 +88,10 @@ async fn render_icon(icon: Option<String>, color: String, icon_color: Option<Str
 /// A whole key as the device shows it: colors, frame and label.
 #[tauri::command]
 async fn render_key(key: KeyFace, label: LabelStyle) -> Result<String, String> {
-    let default_text = format!("#{}", label.color);
-    let look = icons::Look {
-        icon: key.icon.as_deref(),
-        background: &key.color,
-        icon_color: key.icon_color.as_deref().unwrap_or(icons::ICON_COLOR),
-        border: key.border.as_deref(),
-        label: if label.show { &key.label } else { "" },
-        text_color: key.text_color.as_deref().unwrap_or(&default_text),
-        label_px: (u32::from(label.size) * 12 / 5).clamp(12, 48),
-        // The editor shows keys as configured, not whether their app runs.
-        dim: false,
-    };
+    let default_text = icons::default_text_color(&label);
+    // Drawn the way the engine draws it for the device; the editor shows keys
+    // as configured, not whether their app runs.
+    let look = icons::Look::new(&key.appearance(), &label, &default_text, false);
     let png = icons::render_key(&look, &config_dir()).map_err(|e| format!("{e:#}"))?;
     Ok(icons::data_url(&png))
 }

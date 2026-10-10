@@ -10,6 +10,8 @@ use image::{imageops, DynamicImage, ImageFormat, Rgba, RgbaImage};
 
 use d200::protocol::ICON_SIZE;
 
+use crate::config::{Appearance, LabelStyle};
+
 /// Built-in icons: (id kept in config.json, Portuguese words for search,
 /// 24×24 stroke path). Never rename an id: keys point to it.
 pub const GLYPHS: &[(&str, &str, &str)] = &[
@@ -142,6 +144,30 @@ pub struct Look<'a> {
     pub label_px: u32,
     /// Darkened, for an app key whose app is not running.
     pub dim: bool,
+}
+
+impl<'a> Look<'a> {
+    /// How a key is drawn, on the device and in the editor alike: its
+    /// appearance with the label style's defaults filled in. `default_text`
+    /// is `default_text_color(style)`.
+    pub fn new(face: &Appearance<'a>, style: &'a LabelStyle, default_text: &'a str, dim: bool) -> Self {
+        Look {
+            dim,
+            icon: face.icon,
+            background: face.color,
+            icon_color: face.icon_color.unwrap_or(ICON_COLOR),
+            border: face.border,
+            label: if style.show { face.label } else { "" },
+            text_color: face.text_color.unwrap_or(default_text),
+            // The device's label sizes (about 6 to 24) read best at 2.4 px each.
+            label_px: (u32::from(style.size) * 12 / 5).clamp(12, 48),
+        }
+    }
+}
+
+/// The label color of keys that don't set their own, as #RRGGBB.
+pub fn default_text_color(style: &LabelStyle) -> String {
+    format!("#{}", style.color)
 }
 
 /// How bright a dimmed key stays.
@@ -585,6 +611,26 @@ mod tests {
         let png = app_icon(Path::new(r"C:\Windows\explorer.exe")).unwrap();
         let img = image::load_from_memory(&png).unwrap().to_rgba8();
         assert!(img.pixels().any(|p| p.0[3] > 0), "the icon has visible pixels");
+    }
+
+    #[test]
+    fn a_key_looks_the_same_on_the_device_and_in_the_editor() {
+        use crate::config::{Key, KeyFace, LabelStyle};
+
+        let style = LabelStyle::default();
+        let default_text = default_text_color(&style);
+        let key = Key { label: "Spotify".into(), icon: Some("music".into()), border: Some("#F0A63A".into()), ..Key::default() };
+        let look = Look::new(&key.appearance(), &style, &default_text, true);
+        assert_eq!((look.label, look.icon, look.border, look.dim), ("Spotify", Some("music"), Some("#F0A63A"), true));
+        // Unset colors take the defaults; size 10 is 24 px.
+        assert_eq!((look.icon_color, look.text_color, look.label_px), (ICON_COLOR, "#FFFFFF", 24));
+        // A second state is drawn by the same rules.
+        let second = KeyFace { label: "Mudo".into(), text_color: Some("#FF0000".into()), ..KeyFace::default() };
+        assert_eq!(Look::new(&second.appearance(), &style, &default_text, false).text_color, "#FF0000");
+        // Hidden labels, and sizes kept between 12 and 48 px.
+        let hidden = LabelStyle { show: false, size: 200, ..LabelStyle::default() };
+        let look = Look::new(&key.appearance(), &hidden, &default_text, false);
+        assert_eq!((look.label, look.label_px), ("", 48));
     }
 
     #[test]

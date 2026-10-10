@@ -18,6 +18,8 @@ use anyhow::{anyhow, bail, Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::files::write_atomic;
+
 const API: &str = "https://api.iconify.design";
 /// Each set is also an npm package, which this CDN serves compressed.
 const CDN: &str = "https://cdn.jsdelivr.net/npm/@iconify-json";
@@ -122,17 +124,6 @@ fn download(url: &str) -> Result<String> {
 /// Where downloads are kept: beside config.json.
 fn cache(base: &Path) -> PathBuf {
     base.join("iconify")
-}
-
-/// Written beside and renamed over, so a half-written file is never read.
-fn write_atomic(path: &Path, text: &str) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let temp = path.with_extension("tmp");
-    std::fs::write(&temp, text)?;
-    std::fs::rename(&temp, path)?;
-    Ok(())
 }
 
 /// Every set, by Iconify's categories. Downloaded at most once a week; an
@@ -451,8 +442,8 @@ pub fn save(base: &Path, id: &str) -> Result<String> {
     let (prefix, name) = parse_id(id)?;
     let svg = find(base, prefix, name)?;
     let file = format!("{prefix}-{name}.svg");
-    std::fs::create_dir_all(base.join("icons"))?;
-    std::fs::write(base.join("icons").join(&file), svg)?;
+    // The engine may be drawing the old one under the same name.
+    write_atomic(&base.join("icons").join(&file), svg)?;
     Ok(format!("icons/{file}"))
 }
 

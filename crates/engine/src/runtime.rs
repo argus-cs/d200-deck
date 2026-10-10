@@ -23,7 +23,7 @@ use serde_json::json;
 
 use crate::actions::{self, Front};
 use crate::browser::{self, Bridge};
-use crate::config::{Action, Config, Folder, Key, LabelStyle, Rule, RuleMode, SettingId, When, Window, BACK_KEY};
+use crate::config::{Action, Appearance, Config, Folder, Key, Rule, RuleMode, SettingId, When, Window, BACK_KEY};
 use crate::context::{watch_foreground, ProcessList};
 use crate::icons;
 use crate::rules::{
@@ -266,55 +266,15 @@ impl Live {
 
 /// What a key looks like and does right now.
 struct Face<'a> {
-    label: &'a str,
-    icon: Option<&'a str>,
-    color: &'a str,
-    icon_color: Option<&'a str>,
-    text_color: Option<&'a str>,
-    border: Option<&'a str>,
+    appearance: Appearance<'a>,
     action: Option<&'a Action>,
 }
 
 fn face(key: &Key, toggled: bool) -> Face<'_> {
     match (&key.toggle, toggled) {
-        (Some(second), true) => Face {
-            label: &second.label,
-            icon: second.icon.as_deref(),
-            color: &second.color,
-            icon_color: second.icon_color.as_deref(),
-            text_color: second.text_color.as_deref(),
-            border: second.border.as_deref(),
-            action: second.action.as_ref().or(key.action.as_ref()),
-        },
-        _ => Face {
-            label: &key.label,
-            icon: key.icon.as_deref(),
-            color: &key.color,
-            icon_color: key.icon_color.as_deref(),
-            text_color: key.text_color.as_deref(),
-            border: key.border.as_deref(),
-            action: key.action.as_ref(),
-        },
+        (Some(second), true) => Face { appearance: second.appearance(), action: second.action.as_ref().or(key.action.as_ref()) },
+        _ => Face { appearance: key.appearance(), action: key.action.as_ref() },
     }
-}
-
-/// The image a face makes, with the label style's defaults filled in.
-fn look<'a>(face: &Face<'a>, style: &'a LabelStyle, default_text: &'a str, dim: bool) -> icons::Look<'a> {
-    icons::Look {
-        dim,
-        icon: face.icon,
-        background: face.color,
-        icon_color: face.icon_color.unwrap_or(icons::ICON_COLOR),
-        border: face.border,
-        label: if style.show { face.label } else { "" },
-        text_color: face.text_color.unwrap_or(default_text),
-        // The device's label sizes (about 6 to 24) read best at 2.4 px each.
-        label_px: (u32::from(style.size) * 12 / 5).clamp(12, 48),
-    }
-}
-
-fn default_text_color(style: &LabelStyle) -> String {
-    format!("#{}", style.color)
 }
 
 fn toggle_id(config: &Config, slot: &Slot, number: u8) -> ToggleId {
@@ -1033,7 +993,7 @@ impl State {
         };
         let activity = Activity {
             number,
-            label: current.as_ref().map(|f| f.label.to_string()).unwrap_or_default(),
+            label: current.as_ref().map(|f| f.appearance.label.to_string()).unwrap_or_default(),
             rule: rule.map(|r| r.name.clone()),
             action: described,
             error: None,
@@ -1193,11 +1153,11 @@ impl State {
                     .unwrap_or_default();
                 let toggled = slot.is_some_and(|s| self.live.toggled(&self.config, s, number));
                 let current = slot.map(|s| face(&s.key, toggled));
-                let default_text = default_text_color(&self.config.label);
+                let default_text = icons::default_text_color(&self.config.label);
                 let image = slot
                     .zip(current.as_ref())
                     .and_then(|(s, f)| {
-                        let look = look(f, &self.config.label, &default_text, self.live.dim(&s.key, f));
+                        let look = icons::Look::new(&f.appearance, &self.config.label, &default_text, self.live.dim(&s.key, f));
                         cached_icon(&mut self.icons, &look, &base, number as usize)
                     })
                     .map(|png| icons::data_url(&png));
@@ -1210,7 +1170,7 @@ impl State {
                 KeyStatus {
                     number,
                     toggled,
-                    label: current.as_ref().map(|f| f.label.to_string()).unwrap_or_default(),
+                    label: current.as_ref().map(|f| f.appearance.label.to_string()).unwrap_or_default(),
                     image,
                     action,
                     rule: rule.map(|r| r.name.clone()),
@@ -1275,7 +1235,7 @@ fn build_views(
     config: &Config,
     live: &Live,
 ) -> BTreeMap<usize, KeyView> {
-    let default_text = default_text_color(&config.label);
+    let default_text = icons::default_text_color(&config.label);
     (0..KEY_COUNT)
         .map(|index| {
             let number = index + 1;
@@ -1284,7 +1244,7 @@ fn build_views(
                 Some(slot) => {
                     let current = face(&slot.key, live.toggled(config, slot, number as u8));
                     // The label is drawn in the image, so each key can have its own colors.
-                    let look = look(&current, &config.label, &default_text, live.dim(&slot.key, &current));
+                    let look = icons::Look::new(&current.appearance, &config.label, &default_text, live.dim(&slot.key, &current));
                     KeyView { text: String::new(), png: cached_icon(cache, &look, base, number) }
                 }
             };

@@ -55,7 +55,9 @@ O `tauri build` assina o instalador para as atualizações e precisa da chave pr
 2. Clique em **Carregar sem pacote** e escolha a pasta `extension-edge`. No app instalado, ela fica na pasta de instalação, e o guia dentro do app abre essa pasta e a página de extensões.
 3. Depois de mudar algo na extensão, clique em recarregar nela.
 
-A extensão só conversa com o próprio computador (`127.0.0.1:47820`), e o app recusa qualquer conexão que não venha de uma extensão. Abas InPrivate não são vistas.
+A extensão só conversa com o próprio computador (`127.0.0.1:47820`), e o app recusa qualquer conexão que não venha dela: páginas da web e outras extensões ficam de fora. Abas InPrivate não são vistas.
+
+Na versão 0.3.3 a extensão ganhou um ID fixo. Quem já tinha a extensão carregada precisa recarregá-la uma vez em `edge://extensions` depois de atualizar o app. Se ela continuar desconectada, remova e carregue de novo.
 
 ## Configuração
 

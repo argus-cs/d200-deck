@@ -2,6 +2,19 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.3 — 2026-10-10
+
+### Segurança
+- O app agora só conversa com a extensão do D200 Deck: antes, qualquer extensão instalada no Edge podia se conectar a ele, mandar abas falsas e disparar regras de site. A extensão ganhou um ID fixo para isso
+- A conexão com a extensão tem limites de tamanho e de tempo, para nada travar o app enviando mensagens enormes
+
+### Correções
+- A extensão do Edge não fica mais com uma conexão órfã quando o app reinicia, e não falha se uma aba fecha no meio de um envio
+
+### Ao atualizar
+- **Recarregue a extensão uma vez** em `edge://extensions` (o botão de recarregar no cartão do D200 Deck): sem isso, as regras de site param de funcionar até você recarregar. Se ela continuar desconectada, remova e carregue de novo pela pasta que o guia do app abre.
+- Quem tem a 0.3.0, a 0.3.1 ou a 0.3.2 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações.
+
 ## 0.3.2 — 2026-10-10
 
 ### Correções

@@ -1,6 +1,7 @@
 # Builds the Windows installer. A "v*" tag (v0.2.0) drafts a GitHub release
-# with the installer and the latest.json the in-app updater reads; installed
-# apps only see the new version once the draft is published.
+# with the installer, the version's CHANGELOG.md notes and the latest.json
+# the in-app updater reads; installed apps only see the new version once the
+# draft is published.
 # Run by hand (Actions → Release → Run workflow) it only builds, and keeps
 # the installer as a workflow artifact.
 name: Release
@@ -31,6 +32,18 @@ jobs:
             Write-Error "A tag v$tag não bate com as versões: tauri.conf.json $tauri, package.json $npm, Cargo.toml $cargo"
             exit 1
           }
+
+      # The version's CHANGELOG.md section, written in its pull request, plus
+      # what every installer needs said. Also becomes latest.json's notes.
+      - name: Release notes from CHANGELOG.md
+        id: notes
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $notes = .github/scripts/changelog-section.ps1 -Version ('${{ github.ref_name }}'.TrimStart('v'))
+          $footer = 'Instalador para Windows 10/11 (64 bits), sem precisar de administrador. Se o Windows avisar que o instalador não é reconhecido (ele não tem assinatura digital), clique em "Mais informações" → "Executar assim mesmo".'
+          $delimiter = "NOTES_$([guid]::NewGuid().ToString('N'))"
+          "notes<<$delimiter`n$notes`n`n---`n$footer`n$delimiter" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - uses: actions/setup-node@v4
         with:
@@ -65,7 +78,7 @@ jobs:
           # Empty on manual runs: build only, no release.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: D200 Deck __VERSION__
-          releaseBody: Escreva as notas desta versão antes de publicar.
+          releaseBody: ${{ steps.notes.outputs.notes }}
           releaseDraft: true
 
       - name: Keep the installer (manual runs)

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { iconifyIcons, iconifySave, iconifySearch, iconifySets, type IconSet, type IconifyIcon } from './api';
+  import { iconifyIcons, iconifySamples, iconifySave, iconifySearch, iconifySets, type IconSet, type IconifyIcon } from './api';
   import Icon from './Icon.svelte';
   import { ICON_COLOR, fold } from './types';
 
@@ -20,6 +20,8 @@
 
   const PAGE = 150;
   const LAST_SET = 'd200deck.iconifySet';
+  /** Samples asked for at once (three per set). */
+  const SAMPLE_BATCH = 60;
 
   let dialog: HTMLDialogElement;
   let sentinel = $state<HTMLElement | null>(null);
@@ -30,8 +32,11 @@
   let filter = $state('');
   let icons = $state<IconifyIcon[]>([]);
   let total = $state(0);
-  /** Search results across every set ("mdi:bluetooth"), instead of one set's icons. */
-  let results = $state<string[] | null>(null);
+  /** Search results across every set, named "mdi:bluetooth", instead of one set's icons. */
+  let results = $state<IconifyIcon[] | null>(null);
+  let searching = $state(false);
+  /** The sets' samples by id ("mdi:home"), as they scroll into view. */
+  let sampleSvg = $state<Record<string, string>>({});
   let loading = $state(false);
   let saving = $state(false);
   let error = $state<string | null>(null);
@@ -53,13 +58,58 @@
     return out;
   });
 
-  /** Icons from a downloaded set: one-color ones in the key's icon color. */
+  /** Icons come as SVG text from the engine: one-color ones in the key's icon color. */
   const local = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg.replaceAll('currentColor', ink))}`;
-  /** Samples and search results come straight from Iconify, as images. */
-  const remote = (id: string) => {
-    const [prefix, name] = id.split(':');
-    return `https://api.iconify.design/${prefix}/${name}.svg?height=48&color=${encodeURIComponent(ink)}`;
-  };
+
+  // Samples are asked for as their sets scroll into view, one request at a
+  // time: the engine gets them from Iconify (or its disk) one set per
+  // request, as Iconify turns away many single icons from one address.
+  const asked = new Set<string>();
+  let waiting: string[] = [];
+  let askingSamples = false;
+  const setOf = new WeakMap<Element, IconSet>();
+  const shown = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      const set = setOf.get(entry.target);
+      if (!entry.isIntersecting || !set) continue;
+      for (const sample of set.samples) {
+        const id = `${set.prefix}:${sample}`;
+        if (!asked.has(id)) {
+          asked.add(id);
+          waiting.push(id);
+        }
+      }
+    }
+    askSamples();
+  });
+
+  /** Watches a set's row, for its samples. */
+  function sampled(node: HTMLElement, set: IconSet) {
+    setOf.set(node, set);
+    shown.observe(node);
+    return {
+      update: (next: IconSet) => setOf.set(node, next),
+      destroy: () => shown.unobserve(node),
+    };
+  }
+
+  async function askSamples() {
+    if (askingSamples || waiting.length === 0) return;
+    askingSamples = true;
+    const ids = waiting.splice(0, SAMPLE_BATCH);
+    try {
+      const found = await iconifySamples(ids);
+      for (const icon of found) sampleSvg[icon.name] = icon.svg;
+      // The ones missing are asked again when their set comes back into view.
+      const got = new Set(found.map((icon) => icon.name));
+      for (const id of ids) if (!got.has(id)) asked.delete(id);
+    } catch {
+      for (const id of ids) asked.delete(id);
+    } finally {
+      askingSamples = false;
+      askSamples();
+    }
+  }
 
   function readLast() {
     try {
@@ -99,6 +149,7 @@
       .catch((e) => (error = `Não deu para falar com o Iconify: ${e}`));
     return () => {
       observer.disconnect();
+      shown.disconnect();
       clearTimeout(filterTimer);
     };
   });
@@ -107,6 +158,7 @@
     if (!current) return;
     const id = ++request;
     loading = true;
+    searching = false;
     error = null;
     try {
       const page = await iconifyIcons(current.prefix, filter, offset, PAGE);
@@ -136,6 +188,7 @@
 
   function onFilter() {
     results = null;
+    searching = false;
     clearTimeout(filterTimer);
     filterTimer = setTimeout(() => load(0), 200);
   }
@@ -145,6 +198,7 @@
     if (!query) return;
     const id = ++request;
     loading = true;
+    searching = true;
     error = null;
     try {
       const found = await iconifySearch(query);
@@ -152,7 +206,10 @@
     } catch (e) {
       if (id === request) error = String(e);
     } finally {
-      if (id === request) loading = false;
+      if (id === request) {
+        loading = false;
+        searching = false;
+      }
     }
   }
 
@@ -192,11 +249,14 @@
           <li class="category">{group.category}</li>
           {#each group.sets as set (set.prefix)}
             <li>
-              <button type="button" class="set" class:on={current?.prefix === set.prefix} onclick={() => openSet(set)}>
+              <button type="button" class="set" class:on={current?.prefix === set.prefix} onclick={() => openSet(set)} use:sampled={set}>
                 <span class="set-top">
                   <span class="ellipsis">{set.name}</span>
                   <span class="samples">
-                    {#each set.samples as sample (sample)}<img src={remote(`${set.prefix}:${sample}`)} alt="" loading="lazy" />{/each}
+                    {#each set.samples as sample (sample)}
+                      {@const svg = sampleSvg[`${set.prefix}:${sample}`]}
+                      {#if svg}<img src={local(svg)} alt="" />{:else}<span class="blank"></span>{/if}
+                    {/each}
                   </span>
                 </span>
                 <span class="muted small">{set.total.toLocaleString('pt-BR')} ícones · {set.license}</span>
@@ -225,15 +285,17 @@
         <button type="button" class="secondary" disabled={!filter.trim() || loading} onclick={searchAll}>Buscar em todas</button>
       </div>
 
-      {#if results}
+      {#if searching}
+        <div class="empty muted">Buscando "{filter.trim()}" em todas as coleções…</div>
+      {:else if results}
         <p class="muted small">
           {results.length === 0 ? 'Nada encontrado em nenhuma coleção.' : `${results.length} ícones de várias coleções para "${filter.trim()}".`}
           {#if current}<button type="button" class="link" onclick={() => openSet(current!)}>Voltar para {current.name}</button>{/if}
         </p>
         <div class="grid scroll" style:--tile={color}>
-          {#each results as id (id)}
-            <button type="button" class="tile" title={id} aria-label={`Ícone ${id}`} disabled={saving} onclick={() => pick(id)}>
-              <img src={remote(id)} alt="" loading="lazy" />
+          {#each results as icon (icon.name)}
+            <button type="button" class="tile" title={icon.name} aria-label={`Ícone ${icon.name}`} disabled={saving} onclick={() => pick(icon.name)}>
+              <img src={local(icon.svg)} alt="" />
             </button>
           {/each}
         </div>
@@ -435,7 +497,8 @@
     display: flex;
     gap: 4px;
   }
-  .samples img {
+  .samples img,
+  .samples .blank {
     width: 18px;
     height: 18px;
   }

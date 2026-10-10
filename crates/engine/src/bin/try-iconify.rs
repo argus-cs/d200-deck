@@ -3,6 +3,7 @@
 //! Usage: cargo run -p deck-engine --bin try-iconify -- <folder> sets
 //!        cargo run -p deck-engine --bin try-iconify -- <folder> icons <set> [filter]
 //!        cargo run -p deck-engine --bin try-iconify -- <folder> search <text>
+//!        cargo run -p deck-engine --bin try-iconify -- <folder> samples <set:icon>...
 //!        cargo run -p deck-engine --bin try-iconify -- <folder> save <set:icon>
 
 use std::path::PathBuf;
@@ -12,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use deck_engine::iconify;
 use deck_engine::icons::{render_key, Look, ICON_COLOR};
 
-const USAGE: &str = "uso: try-iconify <pasta> sets | icons <coleção> [filtro] | search <texto> | save <coleção:ícone>";
+const USAGE: &str = "uso: try-iconify <pasta> sets | icons <coleção> [filtro] | search <texto> | samples <coleção:ícone>... | save <coleção:ícone>";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -36,7 +37,14 @@ fn main() -> Result<()> {
         }
         Some("search") => {
             let found = iconify::search(&rest[1..].join(" "))?;
-            println!("{} achados; os primeiros: {:?}", found.len(), &found[..found.len().min(10)]);
+            println!("{} achados; os primeiros: {:?}", found.len(), found.iter().take(10).map(|i| &i.name).collect::<Vec<_>>());
+        }
+        Some("samples") => {
+            let found = iconify::samples(&base, &rest[1..])?;
+            for icon in &found {
+                println!("  {} · {} bytes", icon.name, icon.svg.len());
+            }
+            println!("{} de {} (guardadas em {})", found.len(), rest.len() - 1, base.join("iconify").join("samples.json").display());
         }
         Some("save") => {
             let path = iconify::save(&base, rest.get(1).context(USAGE)?)?;

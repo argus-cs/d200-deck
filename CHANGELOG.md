@@ -2,6 +2,16 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.1 — 2026-10-10
+
+### Correções
+- "Mais ícones": a busca em todas as coleções não mostra mais ícones quebrados. As prévias vinham uma a uma do site do Iconify, que passava a recusar depois de algumas buscas; agora o app baixa os ícones de cada coleção de uma vez, e as amostras da lista ficam guardadas no PC
+- Alguns resultados da busca, que são outro nome para um ícone, davam "o ícone não existe" ao serem escolhidos; agora funcionam
+- Enquanto busca, a janela mostra "Buscando…", e se o Iconify recusar pedidos aparece uma mensagem clara em vez de quadrados vazios
+
+### Ao atualizar
+- Quem tem a 0.3.0 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações.
+
 ## 0.3.0 — 2026-10-10
 
 ### Novidades

@@ -1,0 +1,48 @@
+# Runs on every pull request to main. The "Proteger a main" ruleset requires
+# the "Testes" job to pass before a pull request can be merged.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+# A new push to the same pull request cancels the run still going.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Testes
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install the frontend packages
+        working-directory: app
+        run: npm ci
+
+      - name: Test the driver and the engine
+        run: cargo test -p d200 -p deck-engine
+
+      - name: Build the frontend
+        working-directory: app
+        run: npm run build
+
+      # The app embeds the built frontend (app/dist), hence after the build.
+      - name: Check the app
+        run: cargo check -p d200-deck
+
+      - name: Check the frontend types
+        working-directory: app
+        run: npm run check

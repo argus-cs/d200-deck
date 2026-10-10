@@ -85,6 +85,8 @@ cargo run -p deck-engine --bin try-system -- state       # lê os ajustes do Win
 
 O app e o `deckd` não podem rodar juntos, porque os dois usam o aparelho e a porta 47820.
 
+Todo PR para a `main` roda esses testes no GitHub Actions, e o merge só é liberado se eles passarem. A `main` não aceita push direto.
+
 ## Limitações conhecidas
 
 - Atalhos simulados não chegam a apps rodando como administrador.

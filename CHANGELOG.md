@@ -2,6 +2,21 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.4 — 2026-10-10
+
+### Novidades
+- O app agora guarda um registro do que faz e dos erros que encontra em `%APPDATA%\D200Deck\d200deck.log`, para dar para descobrir por que algo não funcionou
+
+### Correções
+- Duas regras não podem mais ter o mesmo nome: com nomes iguais, a tecla de pasta de uma regra podia abrir a pasta da outra. Duplicar ou criar uma regra já escolhe um nome livre, e o editor avisa ao renomear para um nome que já existe. Regras repetidas de versões anteriores ganham um número no fim, como "Discord (2)"
+- Uma mudança feita à mão no config.json não é mais sobrescrita por uma edição da janela que ainda ia ser salva, e o aviso de "mudança ainda não salva" some quando o arquivo é recarregado
+
+### Segurança
+- Um ícone SVG não consegue mais fazer o app abrir arquivos do computador ou de um servidor da rede, e imagens de tecla em pastas de rede são recusadas
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.3 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.3 — 2026-10-10
 
 ### Segurança

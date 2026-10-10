@@ -391,6 +391,43 @@ impl Key {
     pub fn back() -> Self {
         Self { label: "Voltar".into(), icon: Some("back".into()), icon_color: Some("#F0A63A".into()), ..Self::default() }
     }
+
+    /// How its first state looks.
+    pub fn appearance(&self) -> Appearance<'_> {
+        Appearance {
+            label: &self.label,
+            icon: self.icon.as_deref(),
+            color: &self.color,
+            icon_color: self.icon_color.as_deref(),
+            text_color: self.text_color.as_deref(),
+            border: self.border.as_deref(),
+        }
+    }
+}
+
+impl KeyFace {
+    pub fn appearance(&self) -> Appearance<'_> {
+        Appearance {
+            label: &self.label,
+            icon: self.icon.as_deref(),
+            color: &self.color,
+            icon_color: self.icon_color.as_deref(),
+            text_color: self.text_color.as_deref(),
+            border: self.border.as_deref(),
+        }
+    }
+}
+
+/// What a key or its second state shows: the fields `Key` and `KeyFace`
+/// share. `icons::Look::new` turns it into what gets drawn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Appearance<'a> {
+    pub label: &'a str,
+    pub icon: Option<&'a str>,
+    pub color: &'a str,
+    pub icon_color: Option<&'a str>,
+    pub text_color: Option<&'a str>,
+    pub border: Option<&'a str>,
 }
 
 impl Default for KeyFace {
@@ -537,15 +574,8 @@ impl Config {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        // Write beside the file and rename over it, so the engine watching
-        // the file never reads half of it.
-        let temp = path.with_extension("json.tmp");
-        std::fs::write(&temp, serde_json::to_string_pretty(self)? + "\n")?;
-        std::fs::rename(&temp, path)?;
-        Ok(())
+        // The engine watching the file never reads half of it.
+        crate::files::write_atomic(path, serde_json::to_string_pretty(self)? + "\n")
     }
 
     /// The folder relative icon paths start from.

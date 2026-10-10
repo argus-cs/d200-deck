@@ -35,6 +35,29 @@ impl DeckState {
     }
 }
 
+/// What a command failed with, for the window: the whole chain of causes
+/// (`{e:#}`), as the error text it shows.
+pub struct CmdError(String);
+
+type CmdResult<T> = Result<T, CmdError>;
+
+impl<E: Into<anyhow::Error>> From<E> for CmdError {
+    fn from(e: E) -> Self {
+        CmdError(format!("{:#}", e.into()))
+    }
+}
+
+impl Serialize for CmdError {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+/// Drawing, downloads and disk work on a worker thread, not the async ones.
+async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> CmdResult<T> {
+    Ok(tauri::async_runtime::spawn_blocking(work).await??)
+}
+
 #[tauri::command]
 fn get_status(state: State<DeckState>) -> Status {
     state.status.lock().unwrap().clone()
@@ -57,103 +80,124 @@ fn simulate(state: State<DeckState>, simulation: Option<Simulation>) {
 
 /// Opens config.json in the app Windows uses for .json files.
 #[tauri::command]
-async fn open_config() -> Result<(), String> {
-    let target = Config::default_path().display().to_string();
-    deck_engine::actions::execute(&Action::Open { target, args: None, watch: false }).map_err(|e| format!("{e:#}"))
+async fn open_config() -> CmdResult<()> {
+    open(Config::default_path().display().to_string(), None)
 }
 
+// Loading and saving stay on the main thread, which runs them one at a time
+// in the order the window calls them: on worker threads, an older save could
+// finish after a newer one and write over it. The file is small.
 #[tauri::command]
-fn get_config() -> Result<Config, String> {
-    Config::load_or_create(&Config::default_path()).map_err(|e| format!("{e:#}"))
+fn get_config() -> CmdResult<Config> {
+    Ok(Config::load_or_create(&Config::default_path())?)
 }
 
 /// Validates, writes config.json and has the engine apply it right away.
 /// Nothing reaches the file unless it is valid. Returns it as written, so the
 /// window can tell its own save from a hand edit when the engine reloads.
 #[tauri::command]
-fn save_config(state: State<DeckState>, config: Config) -> Result<Config, String> {
-    config.validate().map_err(|e| format!("{e:#}"))?;
-    config.save(&Config::default_path()).map_err(|e| format!("{e:#}"))?;
+fn save_config(state: State<DeckState>, config: Config) -> CmdResult<Config> {
+    config.validate()?;
+    config.save(&Config::default_path())?;
     state.send(Command::Reload);
     Ok(config)
 }
 
 /// An icon on a background, as the icon picker shows it.
 #[tauri::command]
-async fn render_icon(icon: Option<String>, color: String, icon_color: Option<String>) -> Result<String, String> {
-    let png = icons::render(icon.as_deref(), &color, icon_color.as_deref(), &config_dir()).map_err(|e| format!("{e:#}"))?;
-    Ok(icons::data_url(&png))
+async fn render_icon(icon: Option<String>, color: String, icon_color: Option<String>) -> CmdResult<String> {
+    blocking(move || Ok(icons::data_url(&icons::render(icon.as_deref(), &color, icon_color.as_deref(), &config_dir())?))).await
 }
 
 /// A whole key as the device shows it: colors, frame and label.
 #[tauri::command]
-async fn render_key(key: KeyFace, label: LabelStyle) -> Result<String, String> {
-    let default_text = icons::default_text_color(&label);
-    // Drawn the way the engine draws it for the device; the editor shows keys
-    // as configured, not whether their app runs.
-    let look = icons::Look::new(&key.appearance(), &label, &default_text, false);
-    let png = icons::render_key(&look, &config_dir()).map_err(|e| format!("{e:#}"))?;
-    Ok(icons::data_url(&png))
+async fn render_key(key: KeyFace, label: LabelStyle) -> CmdResult<String> {
+    blocking(move || {
+        let default_text = icons::default_text_color(&label);
+        // Drawn the way the engine draws it for the device; the editor shows
+        // keys as configured, not whether their app runs.
+        let look = icons::Look::new(&key.appearance(), &label, &default_text, false);
+        Ok(icons::data_url(&icons::render_key(&look, &config_dir())?))
+    })
+    .await
 }
 
 /// The visor with example data; `None` when the device draws it itself.
 #[tauri::command]
-async fn render_screen(screen: Screen) -> Result<Option<String>, String> {
-    let png = deck_engine::screen::preview(&screen, &config_dir()).map_err(|e| format!("{e:#}"))?;
-    Ok(png.map(|p| icons::data_url(&p)))
+async fn render_screen(screen: Screen) -> CmdResult<Option<String>> {
+    blocking(move || Ok(deck_engine::screen::preview(&screen, &config_dir())?.map(|png| icons::data_url(&png)))).await
 }
 
 /// The icon of an app (its exe), saved for a key. Returns the path to store.
 #[tauri::command]
-async fn app_icon(path: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+async fn app_icon(path: String) -> CmdResult<String> {
+    blocking(move || {
         let exe = PathBuf::from(&path);
-        let png = icons::app_icon(&exe).map_err(|e| format!("{e:#}"))?;
+        let png = icons::app_icon(&exe)?;
         let stem = exe.file_stem().unwrap_or_default().to_string_lossy().to_string();
-        save_icon(&png, &format!("app-{stem}"))
+        store_icon(&format!("app-{stem}"), |target| std::fs::write(target, &png))
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Any file, for the "open" action: a program, a document, a shortcut.
 #[tauri::command]
-async fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
-    match app.dialog().file().blocking_pick_file() {
-        None => Ok(None),
-        Some(picked) => picked.into_path().map(|p| Some(p.display().to_string())).map_err(|e| e.to_string()),
-    }
+async fn pick_file(app: AppHandle) -> CmdResult<Option<String>> {
+    Ok(pick(&app, None)?.map(|path| path.display().to_string()))
 }
 
 #[tauri::command]
-async fn pick_app_icon(app: AppHandle) -> Result<Option<String>, String> {
-    let Some(picked) = app.dialog().file().add_filter("Programa", &["exe"]).blocking_pick_file() else {
+async fn pick_app_icon(app: AppHandle) -> CmdResult<Option<String>> {
+    match pick(&app, Some(("Programa", &["exe"])))? {
+        None => Ok(None),
+        Some(exe) => app_icon(exe.display().to_string()).await.map(Some),
+    }
+}
+
+/// Lets the person pick a PNG and copies it into the config folder, so the
+/// key keeps working if the original moves. Returns the path to store.
+#[tauri::command]
+async fn pick_image(app: AppHandle) -> CmdResult<Option<String>> {
+    let Some(source) = pick(&app, Some(("Imagem PNG", &["png"])))? else {
         return Ok(None);
     };
-    let path = picked.into_path().map_err(|e| e.to_string())?;
-    app_icon(path.display().to_string()).await.map(Some)
+    let stem = source.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    Ok(Some(store_icon(&stem, |target| std::fs::copy(&source, target).map(|_| ()))?))
 }
 
 /// The icon Edge keeps for an open page, saved for a key.
 #[tauri::command]
-async fn site_icon(state: State<'_, DeckState>, url: String, host: String) -> Result<String, String> {
-    let browser = state.engine.get().ok_or("o motor ainda não iniciou")?.browser();
-    tauri::async_runtime::spawn_blocking(move || {
-        let bytes = browser.favicon(&url).map_err(|e| format!("{e:#}"))?;
-        let png = icons::frame_bytes(&bytes).map_err(|e| format!("{e:#}"))?;
-        save_icon(&png, &format!("site-{host}"))
+async fn site_icon(state: State<'_, DeckState>, url: String, host: String) -> CmdResult<String> {
+    let browser = state.engine.get().ok_or_else(|| anyhow::anyhow!("o motor ainda não iniciou"))?.browser();
+    blocking(move || {
+        let png = icons::frame_bytes(&browser.favicon(&url)?)?;
+        store_icon(&format!("site-{host}"), |target| std::fs::write(target, &png))
     })
     .await
-    .map_err(|e| e.to_string())?
 }
 
-/// Writes a key image into the config folder; returns the path to store.
-fn save_icon(png: &[u8], stem: &str) -> Result<String, String> {
+/// The file the person picks in Windows' dialog, or `None` if they cancel.
+fn pick(app: &AppHandle, filter: Option<(&str, &[&str])>) -> anyhow::Result<Option<PathBuf>> {
+    let mut dialog = app.dialog().file();
+    if let Some((name, extensions)) = filter {
+        dialog = dialog.add_filter(name, extensions);
+    }
+    dialog.blocking_pick_file().map(|picked| picked.into_path()).transpose().map_err(Into::into)
+}
+
+/// Writes a key image into the config folder, under a free name made from
+/// `stem`; returns the path to store ("icons/app-Discord.png").
+fn store_icon(stem: &str, write: impl FnOnce(&Path) -> std::io::Result<()>) -> anyhow::Result<String> {
     let folder = config_dir().join("icons");
-    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&folder)?;
     let target = free_name(&folder, stem);
-    std::fs::write(&target, png).map_err(|e| e.to_string())?;
+    write(&target)?;
     Ok(format!("icons/{}", target.file_name().unwrap_or_default().to_string_lossy()))
+}
+
+/// Opens a file, folder or program the way the "open" action does.
+fn open(target: String, args: Option<String>) -> CmdResult<()> {
+    Ok(deck_engine::actions::execute(&Action::Open { target, args, watch: false })?)
 }
 
 #[derive(Serialize)]
@@ -170,64 +214,54 @@ fn glyphs() -> Vec<Glyph> {
 
 /// The extension ships with the app, so the guide can point to a real folder.
 #[tauri::command]
-fn extension_folder(app: AppHandle) -> Result<String, String> {
-    let folder = app.path().resource_dir().map_err(|e| e.to_string())?.join("extension-edge");
-    Ok(folder.display().to_string())
+fn extension_folder(app: AppHandle) -> CmdResult<String> {
+    Ok(app.path().resource_dir()?.join("extension-edge").display().to_string())
 }
 
 #[tauri::command]
-async fn open_extension_folder(app: AppHandle) -> Result<(), String> {
-    let target = extension_folder(app)?;
-    deck_engine::actions::execute(&Action::Open { target, args: None, watch: false }).map_err(|e| format!("{e:#}"))
+async fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
+    open(extension_folder(app)?, None)
 }
 
 #[tauri::command]
-async fn open_edge_extensions() -> Result<(), String> {
-    let action = Action::Open { target: "msedge.exe".into(), args: Some("edge://extensions".into()), watch: false };
-    deck_engine::actions::execute(&action).map_err(|e| format!("{e:#}"))
-}
-
-/// Downloads and disk work off the main thread, with errors for the window.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(move || work().map_err(|e| format!("{e:#}"))).await.map_err(|e| e.to_string())?
+async fn open_edge_extensions() -> CmdResult<()> {
+    open("msedge.exe".into(), Some("edge://extensions".into()))
 }
 
 /// Every Iconify set, for the "more icons" window.
 #[tauri::command]
-async fn iconify_sets() -> Result<Vec<iconify::IconSet>, String> {
+async fn iconify_sets() -> CmdResult<Vec<iconify::IconSet>> {
     blocking(|| iconify::sets(&config_dir())).await
 }
 
 /// One page of a set (downloaded the first time it is opened).
 #[tauri::command]
-async fn iconify_icons(prefix: String, filter: String, offset: usize, limit: usize) -> Result<iconify::Page, String> {
+async fn iconify_icons(prefix: String, filter: String, offset: usize, limit: usize) -> CmdResult<iconify::Page> {
     blocking(move || iconify::icons(&config_dir(), &prefix, &filter, offset, limit)).await
 }
 
 /// Icons across every set, named by id ("mdi:bluetooth"), with their SVG.
 #[tauri::command]
-async fn iconify_search(query: String) -> Result<Vec<iconify::Icon>, String> {
+async fn iconify_search(query: String) -> CmdResult<Vec<iconify::Icon>> {
     blocking(move || iconify::search(&query)).await
 }
 
 /// The sets' samples by id, kept on disk after the first time.
 #[tauri::command]
-async fn iconify_samples(ids: Vec<String>) -> Result<Vec<iconify::Icon>, String> {
+async fn iconify_samples(ids: Vec<String>) -> CmdResult<Vec<iconify::Icon>> {
     blocking(move || iconify::samples(&config_dir(), &ids)).await
 }
 
 /// Saves "set:icon" as an SVG for a key; returns the path to store.
 #[tauri::command]
-async fn iconify_save(id: String) -> Result<String, String> {
+async fn iconify_save(id: String) -> CmdResult<String> {
     blocking(move || iconify::save(&config_dir(), &id)).await
 }
 
 /// The active audio outputs' names, for the "audio output" setting.
 #[tauri::command]
-async fn audio_outputs() -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(|| deck_engine::system::audio_outputs().map_err(|e| format!("{e:#}")))
-        .await
-        .map_err(|e| e.to_string())?
+async fn audio_outputs() -> CmdResult<Vec<String>> {
+    blocking(deck_engine::system::audio_outputs).await
 }
 
 #[derive(Serialize)]
@@ -243,23 +277,6 @@ async fn running_apps() -> Vec<RunningApp> {
         .into_iter()
         .map(|app| RunningApp { exe: app.exe, title: app.title, path: app.path })
         .collect()
-}
-
-/// Lets the person pick a PNG and copies it into the config folder, so the
-/// key keeps working if the original moves. Returns the path to store.
-#[tauri::command]
-async fn pick_image(app: AppHandle) -> Result<Option<String>, String> {
-    let Some(picked) = app.dialog().file().add_filter("Imagem PNG", &["png"]).blocking_pick_file() else {
-        return Ok(None);
-    };
-    let source = picked.into_path().map_err(|e| e.to_string())?;
-    let folder = config_dir().join("icons");
-    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-    let stem = source.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    let target = free_name(&folder, &stem);
-    std::fs::copy(&source, &target).map_err(|e| e.to_string())?;
-    let name = target.file_name().unwrap_or_default().to_string_lossy();
-    Ok(Some(format!("icons/{name}")))
 }
 
 /// `folder/<stem>.png`, or `<stem>-2.png`, `<stem>-3.png`… when taken.

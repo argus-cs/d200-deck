@@ -3,7 +3,7 @@
 //! The label is drawn by the device itself, below the image.
 
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use image::{imageops, DynamicImage, ImageFormat, Rgba, RgbaImage};
@@ -202,8 +202,8 @@ fn render_icon(icon: Option<&str>, color: &str, icon_color: &str, labeled: bool,
         None => encode(RgbaImage::from_pixel(ICON_SIZE, ICON_SIZE, background)),
         Some(name) => match glyph(name) {
             Some(d) => render_glyph(d, color, icon_color, labeled),
-            None if is_svg(name) => render_svg_file(&base_dir.join(name), background, icon_color, labeled),
-            None => render_file(&base_dir.join(name), background),
+            None if is_svg(name) => render_svg_file(&local_file(base_dir, name)?, background, icon_color, labeled),
+            None => render_file(&local_file(base_dir, name)?, background),
         },
     }
 }
@@ -218,7 +218,7 @@ pub fn is_svg(icon: &str) -> bool {
 /// which becomes `color` like the built-in glyphs; colored ones keep theirs.
 pub fn svg_icon(path: &Path, color: &str, size: u32) -> Result<RgbaImage> {
     let text = std::fs::read_to_string(path).with_context(|| format!("não consegui abrir {}", path.display()))?;
-    let tree = resvg::usvg::Tree::from_str(&text.replace("currentColor", color), &resvg::usvg::Options::default())
+    let tree = resvg::usvg::Tree::from_str(&text.replace("currentColor", color), &svg_options(false))
         .with_context(|| format!("{} não é um SVG válido", path.display()))?;
     let (width, height) = (tree.size().width(), tree.size().height());
     let scale = size as f32 / width.max(height);
@@ -267,9 +267,7 @@ fn label_svg(label: &str, color: &str, px: u32) -> String {
 }
 
 fn rasterize(svg: &str) -> Result<RgbaImage> {
-    let mut options = resvg::usvg::Options::default();
-    options.fontdb = fonts();
-    let tree = resvg::usvg::Tree::from_str(svg, &options)?;
+    let tree = resvg::usvg::Tree::from_str(svg, &svg_options(true))?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).ok_or_else(|| anyhow!("pixmap"))?;
     resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
     let mut img = RgbaImage::new(ICON_SIZE, ICON_SIZE);
@@ -296,6 +294,32 @@ pub(crate) fn fonts() -> std::sync::Arc<resvg::usvg::fontdb::Database> {
             Arc::new(db)
         })
         .clone()
+}
+
+/// How every SVG here is read. An `<image>` in it may carry its picture
+/// (`data:`), but not point at a file or an address: that is read the moment
+/// the SVG is drawn, and a network path makes Windows hand the user's
+/// credentials to that server. Iconify's files and hand-picked ones alike.
+pub(crate) fn svg_options(with_text: bool) -> resvg::usvg::Options<'static> {
+    let mut options = resvg::usvg::Options::default();
+    options.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    if with_text {
+        options.fontdb = fonts();
+    }
+    options
+}
+
+/// A key's or the visor's image file: relative to the config folder, or an
+/// absolute path on this computer. A network path (`\\server\share\…`) is
+/// refused before anything opens it, since opening one sends the user's
+/// credentials to that server.
+pub fn local_file(base: &Path, name: &str) -> Result<PathBuf> {
+    // Windows takes \\, // and their mixes alike as the start of a network path.
+    let network = name.len() >= 2 && name.chars().take(2).all(|c| c == '\\' || c == '/');
+    if network {
+        anyhow::bail!("{name:?} fica na rede: só imagens deste computador");
+    }
+    Ok(base.join(name))
 }
 
 /// Cuts text to `max` characters, ending in "…".
@@ -405,7 +429,7 @@ fn render_glyph(d: &str, background: &str, stroke: &str, labeled: bool) -> Resul
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="{s}" height="{s}" viewBox="0 0 {s} {s}"><rect width="{s}" height="{s}" fill="{background}"/><g transform="translate({GLYPH_LEFT} {top}) scale(4.1667)"><path d="{d}" fill="none" stroke="{stroke}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g></svg>"##,
         s = ICON_SIZE
     );
-    let tree = resvg::usvg::Tree::from_str(&svg, &resvg::usvg::Options::default())?;
+    let tree = resvg::usvg::Tree::from_str(&svg, &svg_options(false))?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(ICON_SIZE, ICON_SIZE).ok_or_else(|| anyhow!("pixmap"))?;
     resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
     Ok(pixmap.encode_png()?)
@@ -561,5 +585,41 @@ mod tests {
         let png = app_icon(Path::new(r"C:\Windows\explorer.exe")).unwrap();
         let img = image::load_from_memory(&png).unwrap().to_rgba8();
         assert!(img.pixels().any(|p| p.0[3] > 0), "the icon has visible pixels");
+    }
+
+    #[test]
+    fn svgs_never_open_the_files_they_point_at() {
+        use base64::Engine as _;
+
+        let dir = std::env::temp_dir().join("deck-engine-svg-href-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let red = encode(RgbaImage::from_pixel(8, 8, Rgba([255, 0, 0, 255]))).unwrap();
+        let png = dir.join("red.png");
+        std::fs::write(&png, &red).unwrap();
+        let image = |href: &str| {
+            format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="{href}" width="10" height="10"/></svg>"#)
+        };
+        // An <image> usvg could load becomes a node; one it didn't is left out.
+        let loads = |href: &str, options: &resvg::usvg::Options| resvg::usvg::Tree::from_str(&image(href), options).unwrap().root().has_children();
+        let path = png.display().to_string().replace('\\', "/");
+        // usvg on its own reads the file while parsing (even with raster
+        // drawing off, as here)…
+        assert!(loads(&path, &resvg::usvg::Options::default()), "the test file is reachable");
+        // …the app's options don't, but keep pictures carried inside the SVG.
+        assert!(!loads(&path, &svg_options(false)));
+        let inline = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&red));
+        assert!(loads(&inline, &svg_options(false)));
+    }
+
+    #[test]
+    fn network_paths_are_refused_before_opening_them() {
+        let base = Path::new(r"C:\config");
+        for network in [r"\\server\share\a.png", "//server/share/a.svg", r"\/server/a.png", r"/\server\a.png", r"\\?\UNC\server\a.png"] {
+            assert!(local_file(base, network).is_err(), "{network}");
+        }
+        assert_eq!(local_file(base, "icons/a.png").unwrap(), base.join("icons/a.png"));
+        assert_eq!(local_file(base, r"D:\fotos\a.png").unwrap(), PathBuf::from(r"D:\fotos\a.png"));
+        // Rendering a key with one fails instead of reaching the network.
+        assert!(render(Some(r"\\server\share\a.png"), BG, None, base).is_err());
     }
 }

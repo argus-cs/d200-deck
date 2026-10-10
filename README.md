@@ -63,6 +63,8 @@ Na versão 0.3.3 a extensão ganhou um ID fixo. Quem já tinha a extensão carre
 
 Tudo é salvo em `%APPDATA%\D200Deck\config.json`, e os ícones escolhidos são copiados para `%APPDATA%\D200Deck\icons`. O arquivo pode ser editado à mão: o app percebe a mudança e recarrega. Uma configuração inválida é ignorada, e o app continua com a anterior.
 
+O que o app faz e os erros que encontra ficam em `%APPDATA%\D200Deck\d200deck.log`, que é o primeiro lugar para olhar quando algo não funciona.
+
 ## Estrutura
 
 | Pasta | O quê |

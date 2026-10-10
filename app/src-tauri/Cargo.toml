@@ -11,7 +11,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 anyhow = "1"
 deck-engine = { path = "../../crates/engine" }
-env_logger = "0.11"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 # generate_context! writes the plugins' settings from tauri.conf.json as serde_json values.

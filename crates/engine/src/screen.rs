@@ -14,7 +14,7 @@ use d200::protocol::WindowMode;
 use image::{imageops, DynamicImage, ImageFormat, Rgba, RgbaImage};
 
 use crate::config::{Screen, ScreenContent};
-use crate::icons::{self, escape, fit, fonts};
+use crate::icons::{self, escape, fit};
 
 pub const WIDTH: u32 = 458;
 pub const HEIGHT: u32 = 196;
@@ -122,7 +122,7 @@ pub fn render(screen: &Screen, data: &Data, base: &Path) -> Result<Option<Vec<u8
     let body = match &screen.content {
         ScreenContent::DeviceClock | ScreenContent::DeviceStats => return Ok(None),
         ScreenContent::Image { icon: Some(icon) } if !icons::is_glyph(icon) => {
-            return image_screen(screen, &base.join(icon)).map(Some);
+            return image_screen(screen, &icons::local_file(base, icon)?).map(Some);
         }
         content => body(screen, content, data),
     };
@@ -130,9 +130,7 @@ pub fn render(screen: &Screen, data: &Data, base: &Path) -> Result<Option<Vec<u8
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}"><rect width="{WIDTH}" height="{HEIGHT}" fill="{}"/>{body}</svg>"#,
         screen_background(screen, data)
     );
-    let mut options = resvg::usvg::Options::default();
-    options.fontdb = fonts();
-    let tree = resvg::usvg::Tree::from_str(&svg, &options)?;
+    let tree = resvg::usvg::Tree::from_str(&svg, &icons::svg_options(true))?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(WIDTH, HEIGHT).ok_or_else(|| anyhow!("pixmap"))?;
     resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
     let png = pixmap.encode_png()?;

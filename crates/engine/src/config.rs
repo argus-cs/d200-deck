@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -508,9 +508,32 @@ impl Config {
 
     pub fn load(path: &Path) -> Result<Self> {
         let text = std::fs::read_to_string(path).with_context(|| format!("não consegui ler {}", path.display()))?;
-        let config: Self = serde_json::from_str(&text).with_context(|| format!("JSON inválido em {}", path.display()))?;
+        let mut config: Self = serde_json::from_str(&text).with_context(|| format!("JSON inválido em {}", path.display()))?;
+        config.rename_repeated_rules();
         config.validate()?;
         Ok(config)
+    }
+
+    /// Rules are told apart by name (an open folder, a two-state key), so two
+    /// with one name would share those. The editor no longer makes them, but an
+    /// older config may hold them: later ones get a free name ("X" → "X (2)").
+    fn rename_repeated_rules(&mut self) {
+        let mut taken: HashSet<String> = self.rules.iter().map(|rule| rule.name.clone()).collect();
+        let mut seen = HashSet::new();
+        for (i, rule) in self.rules.iter_mut().enumerate() {
+            if seen.insert(rule.name.clone()) {
+                continue;
+            }
+            let base = if rule.name.trim().is_empty() { format!("regra {}", i + 1) } else { rule.name.clone() };
+            let free = std::iter::once(base.clone())
+                .chain((2..).map(|n| format!("{base} ({n})")))
+                .find(|name| !taken.contains(name))
+                .unwrap_or_default();
+            log::info!("regra {} renomeada para {free:?}: outra regra já tinha o nome {:?}", i + 1, rule.name);
+            taken.insert(free.clone());
+            seen.insert(free.clone());
+            rule.name = free;
+        }
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -542,6 +565,15 @@ impl Config {
         }
         if let Some(screen) = &self.screen {
             validate_screen(screen).context("visor")?;
+        }
+        let mut names = HashSet::new();
+        for rule in &self.rules {
+            if !names.insert(rule.name.as_str()) {
+                if rule.name.trim().is_empty() {
+                    bail!("duas regras estão sem nome: dê um nome a cada uma");
+                }
+                bail!("duas regras se chamam {:?}: cada regra precisa de um nome só dela", rule.name);
+            }
         }
         for (i, rule) in self.rules.iter().enumerate() {
             let name = if rule.name.trim().is_empty() { format!("regra {}", i + 1) } else { rule.name.clone() };
@@ -654,6 +686,29 @@ fn is_hex_color(s: &str, with_hash: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn with_rules(names: &[&str]) -> Config {
+        let rules: Vec<String> = names.iter().map(|name| format!(r#"{{"name":{name:?},"when":{{"process":"a.exe"}},"mode":"open"}}"#)).collect();
+        Config { rules: serde_json::from_str(&format!("[{}]", rules.join(","))).unwrap(), ..Config::default() }
+    }
+
+    #[test]
+    fn repeated_rule_names_are_refused_when_saving() {
+        assert!(with_rules(&["Discord", "YouTube"]).validate().is_ok());
+        let err = with_rules(&["Discord", "Discord"]).validate().unwrap_err().to_string();
+        assert!(err.contains("duas regras se chamam \"Discord\""), "{err}");
+        assert!(with_rules(&["", ""]).validate().unwrap_err().to_string().contains("sem nome"));
+    }
+
+    #[test]
+    fn older_configs_with_repeated_names_still_load_renamed() {
+        let path = std::env::temp_dir().join("deck-engine-rule-names-test").join("config.json");
+        with_rules(&["A", "A", "A (2)", "", "", "A"]).save(&path).unwrap();
+        let loaded = Config::load(&path).unwrap();
+        let names: Vec<&str> = loaded.rules.iter().map(|rule| rule.name.as_str()).collect();
+        // "A (2)" was already some rule's name, so the second "A" skips it.
+        assert_eq!(names, ["A", "A (3)", "A (2)", "", "regra 5", "A (4)"]);
+    }
 
     #[test]
     fn default_config_is_valid_and_round_trips() {

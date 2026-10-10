@@ -3,7 +3,7 @@
   import Icon from './Icon.svelte';
   import KeyEditor from './KeyEditor.svelte';
   import ScreenEditor from './ScreenEditor.svelte';
-  import { defaultScreen, ruleTarget, type Config, type EdgePage, type Glyph, type Key, type Mode } from './types';
+  import { defaultScreen, freeRuleName, ruleTarget, type Config, type EdgePage, type Glyph, type Key, type Mode } from './types';
 
   let {
     config = $bindable(),
@@ -41,6 +41,8 @@
   /** The keys being edited: the open folder's, or the layer's. */
   const here = $derived(folder ? folder.keys : layer);
   const target = $derived(rule ? ruleTarget(rule) : null);
+  /** Another rule already has this one's name: it won't save until changed. */
+  const repeatedName = $derived(!!rule && config.rules.some((other) => other !== rule && other.name === rule.name));
   const explain = $derived.by(() => {
     if (!rule || !target) return '';
     const t = target.target || '…';
@@ -76,7 +78,7 @@
 
   function duplicate() {
     if (index === null || !rule) return;
-    config.rules.splice(index + 1, 0, { ...$state.snapshot(rule), name: `${rule.name} (cópia)` });
+    config.rules.splice(index + 1, 0, { ...$state.snapshot(rule), name: freeRuleName(config.rules, `${rule.name} (cópia)`) });
     onmoved(index + 1);
   }
 
@@ -167,9 +169,10 @@
     {:else if rule && target && index !== null}
       <div class="rule-head">
         <div class="title-row">
-          <input class="title" aria-label="Nome da regra" bind:value={rule.name} />
+          <input class="title" aria-label="Nome da regra" aria-invalid={repeatedName} bind:value={rule.name} />
           {#if active}<span class="valid"><span class="led"></span>valendo agora</span>{/if}
         </div>
+        {#if repeatedName}<p class="error-text small">Outra regra já tem esse nome. Cada regra precisa de um nome só dela para salvar.</p>{/if}
         <div class="when">
           <label for="rule-target" class="muted">{target.kind === 'app' ? 'Quando o app' : 'Quando o site'}</label>
           <input

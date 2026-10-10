@@ -22,7 +22,7 @@
   import Live from './lib/Live.svelte';
   import NewRule from './lib/NewRule.svelte';
   import Settings from './lib/Settings.svelte';
-  import { modeName, ruleTarget, type Config, type Glyph, type Key, type Rule, type Status } from './lib/types';
+  import { freeRuleName, modeName, ruleTarget, type Config, type Glyph, type Key, type Rule, type Status } from './lib/types';
 
   type View = { kind: 'live' } | { kind: 'default' } | { kind: 'rule'; index: number } | { kind: 'new' } | { kind: 'settings' };
 
@@ -71,6 +71,11 @@
     try {
       loaded ??= await getConfig();
       const json = JSON.stringify(loaded);
+      // The file's version replaces what the editors held: a save still
+      // waiting would write the old one over it, and its error no longer applies.
+      clearTimeout(saveTimer);
+      saveError = null;
+      saveState = 'idle';
       onDisk = json;
       lastSaved = json;
       current = json;
@@ -211,7 +216,7 @@
 
   function createRule(rule: Rule) {
     if (!config) return;
-    config.rules.push(rule);
+    config.rules.push({ ...rule, name: freeRuleName(config.rules, rule.name) });
     view = { kind: 'rule', index: config.rules.length - 1 };
   }
 

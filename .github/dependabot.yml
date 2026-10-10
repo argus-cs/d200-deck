@@ -1,0 +1,14 @@
+# The workflows pin third-party actions to a commit, with the version in a
+# comment. Dependabot moves the pins to new releases, all in one pull request
+# a week, which the "Testes" job checks like any other.
+# Cargo and npm get only the security alerts (repository settings), not
+# version updates.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

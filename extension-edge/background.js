@@ -9,22 +9,40 @@ let sendTimer = null;
 
 function connect() {
   if (socket && socket.readyState <= WebSocket.OPEN) return;
-  socket = new WebSocket(`ws://127.0.0.1:${PORT}/`);
-  socket.onopen = () => sendTabs();
-  socket.onmessage = (event) => handle(JSON.parse(event.data));
-  socket.onclose = () => { socket = null; };
-  socket.onerror = () => {}; // onclose follows; D200 Deck may simply not be running
+  // The handlers hold their own socket: a closing one must not drop the newer
+  // socket that replaced it.
+  const ws = new WebSocket(`ws://127.0.0.1:${PORT}/`);
+  socket = ws;
+  ws.onopen = () => sendTabs();
+  ws.onmessage = (event) => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (message && typeof message === 'object') handle(ws, message);
+  };
+  ws.onclose = () => {
+    if (socket === ws) socket = null;
+  };
+  ws.onerror = () => {}; // onclose follows; D200 Deck may simply not be running
 }
 
+const isOpen = (ws) => ws?.readyState === WebSocket.OPEN;
+
 async function sendTabs() {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+  const ws = socket;
+  if (!isOpen(ws)) {
     connect();
     return;
   }
   const all = await chrome.tabs.query({});
   const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  // It may have closed, or been replaced, while Edge answered.
+  if (ws !== socket || !isOpen(ws)) return;
   const pick = (tab) => ({ id: tab.id, url: tab.url || tab.pendingUrl || '', title: tab.title || '' });
-  socket.send(JSON.stringify({
+  ws.send(JSON.stringify({
     type: 'tabs',
     active: active ? pick(active) : null,
     open: all.map(pick).filter((tab) => tab.url),
@@ -37,9 +55,10 @@ function scheduleSend() {
   sendTimer = setTimeout(sendTabs, 100);
 }
 
-async function handle(message) {
-  if (message.type === 'favicon') return sendFavicon(message);
-  if (message.type !== 'activate') return;
+// Answers go back on the socket that asked.
+async function handle(ws, message) {
+  if (message.type === 'favicon' && typeof message.url === 'string') return sendFavicon(ws, message);
+  if (message.type !== 'activate' || !Number.isInteger(message.tab)) return;
   let ok = false;
   try {
     const tab = await chrome.tabs.update(message.tab, { active: true });
@@ -48,12 +67,12 @@ async function handle(message) {
   } catch {
     // The tab was closed in the meantime.
   }
-  socket?.send(JSON.stringify({ type: 'ack', id: message.id, ok }));
+  if (isOpen(ws)) ws.send(JSON.stringify({ type: 'ack', id: message.id, ok }));
 }
 
 // The icon Edge already keeps for a page (the "favicon" permission): the
 // site itself is not contacted.
-async function sendFavicon(message) {
+async function sendFavicon(ws, message) {
   let data = null;
   try {
     const url = chrome.runtime.getURL(`/_favicon/?pageUrl=${encodeURIComponent(message.url)}&size=128`);
@@ -64,7 +83,7 @@ async function sendFavicon(message) {
   } catch {
     // No icon for that page.
   }
-  socket?.send(JSON.stringify({ type: 'favicon', id: message.id, data }));
+  if (isOpen(ws)) ws.send(JSON.stringify({ type: 'favicon', id: message.id, data }));
 }
 
 chrome.tabs.onActivated.addListener(scheduleSend);
@@ -76,13 +95,16 @@ chrome.windows.onFocusChanged.addListener(scheduleSend);
 chrome.runtime.onStartup.addListener(connect);
 chrome.runtime.onInstalled.addListener(connect);
 
-// Reconnects after D200 Deck restarts.
-chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
+// Reconnects after D200 Deck restarts. Created once: creating it on every
+// service worker start would restart its countdown each time.
+chrome.alarms.get('reconnect').then((alarm) => {
+  if (!alarm) chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
+});
 chrome.alarms.onAlarm.addListener(() => sendTabs());
 
 // WebSocket traffic keeps the service worker alive while connected.
 setInterval(() => {
-  if (socket?.readyState === WebSocket.OPEN) socket.send('{"type":"keepalive"}');
+  if (isOpen(socket)) socket.send('{"type":"keepalive"}');
 }, 20000);
 
 connect();

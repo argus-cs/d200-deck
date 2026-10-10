@@ -887,6 +887,7 @@ dependencies = [
  "resvg",
  "serde",
  "serde_json",
+ "sha2",
  "sysinfo",
  "tungstenite",
  "ureq",

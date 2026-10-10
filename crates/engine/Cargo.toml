@@ -51,3 +51,7 @@ windows = { version = "0.61", features = [
 ] }
 # The `interface` macro (IPolicyConfig in system.rs) expands to `::windows_core` paths.
 windows-core = "0.61"
+
+[dev-dependencies]
+# Checks that browser::EXTENSION_ID matches the key in the extension's manifest.
+sha2 = "0.10"

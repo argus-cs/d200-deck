@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "D200 Deck",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Conta ao D200 Deck quais sites estão abertos no Edge, para as teclas mudarem por site. Os dados só vão para o próprio computador (127.0.0.1).",
+  "minimum_chrome_version": "120",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApAczj68u+Uik7xl1sB1CquIH26PPlMFyXLR2CveGCTUUKgmlfQiBccVUnMWHskNz647MaR8w0tj/jAPh5xM6y6QnnudjK5dlvVq6dtFmgsbmy00nSoJRrCEvDT9Zl7/eZFi2s+CkPc7wbuSUJgaj5EFpuNhmJcWVFgG+I+iV/E49O5vxaBM3548mHVnkB4XPt4QXxeseq9LDhzUkmD0zGGOJgr7OPrBJbF6z1+1ZVfqZKNAG5wKjApAiFwGYKsHgv9HB4UzPex8MrYpumEdr6hrAbyE7Csobz2UCXdqKecCUqgbBePGKrI+XPT0Xuaw6AneRIs16T/IlNlgHplFKlwIDAQAB",
   "permissions": ["tabs", "alarms", "favicon"],
   "host_permissions": ["http://127.0.0.1/*"],
   "background": { "service_worker": "background.js" }

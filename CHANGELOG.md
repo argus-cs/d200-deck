@@ -2,6 +2,15 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.5 — 2026-10-10
+
+### Correções
+- O arquivo de log não cresce mais sem limite com o app aberto por dias: com o D200 conectado e o visor mostrando relógio ou uso do PC, ele ganhava uma linha a cada 1 ou 2 segundos. Essas atualizações do visor não vão mais para o arquivo, e ele recomeça ao passar de 2 MB mesmo com o app aberto
+- O app trabalha menos para manter o visor em dia: quando só o visor muda, ele manda só o visor ao D200 e à janela, em vez de todas as teclas
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.4 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.4 — 2026-10-10
 
 ### Novidades

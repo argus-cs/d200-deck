@@ -5,6 +5,7 @@ pub mod actions;
 pub mod browser;
 pub mod config;
 pub mod context;
+pub mod draw;
 pub mod files;
 pub mod iconify;
 pub mod icons;

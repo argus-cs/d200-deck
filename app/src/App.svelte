@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { getStatus, glyphs as loadGlyphs, onStatus, openConfig } from './lib/api';
+  import { getStatus, glyphs as loadGlyphs, onScreen, onStatus, openConfig } from './lib/api';
   import Banners from './lib/Banners.svelte';
   import { ConfigEditing } from './lib/editing.svelte';
   import LayerEditor from './lib/LayerEditor.svelte';
@@ -24,10 +24,15 @@
   onMount(() => {
     getStatus().then((s) => (status = s));
     const stopStatus = onStatus((s) => (status = s));
+    // Between whole statuses, the visor alone (every second or two).
+    const stopScreen = onScreen((screen) => {
+      if (status) status.screen = screen;
+    });
     loadGlyphs().then((g) => (glyphs = g));
     editing.load();
     return () => {
       stopStatus.then((unlisten) => unlisten());
+      stopScreen.then((unlisten) => unlisten());
     };
   });
 

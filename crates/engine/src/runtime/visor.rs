@@ -48,7 +48,7 @@ impl State {
             .map_err(|e| warn!("visor não desenhado: {e:#}"))
             .unwrap_or(None);
         self.screen_signature = signature;
-        self.status_dirty = true;
+        self.screen_dirty = true;
         true
     }
 
@@ -66,12 +66,30 @@ impl State {
             }
         }
         if self.redraw_screen() {
-            self.sync_keys(device)?;
+            self.send_visor(device)?;
             if let Some(device) = device {
                 // The visor may have switched between what the device and the app draw.
                 self.keepalive(device)?;
             }
         }
+        Ok(())
+    }
+
+    /// Sends the visor alone: when only it changed, the keys stay as they are.
+    fn send_visor(&mut self, device: Option<&D200>) -> Result<()> {
+        let Some(device) = device else { return Ok(()) };
+        // Nothing sent since connecting: everything goes, the visor with it.
+        if self.sent.is_empty() {
+            return self.sync_keys(Some(device));
+        }
+        let view = KeyView { text: String::new(), png: self.screen_png.clone() };
+        if self.sent.get(&WINDOW_INDEX) == Some(&view) {
+            return Ok(());
+        }
+        let size = device.set_layout(&BTreeMap::from([(WINDOW_INDEX, view.clone())]), true)?;
+        // Every second or two with a clock or the PC's usage: not for the log file.
+        debug!("visor atualizado ({size} bytes)");
+        self.sent.insert(WINDOW_INDEX, view);
         Ok(())
     }
 

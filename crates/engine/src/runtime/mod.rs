@@ -17,7 +17,7 @@ use d200::device::D200;
 use d200::layout::KeyView;
 use d200::protocol::{Incoming, WindowMode, KEY_COUNT};
 use hidapi::HidApi;
-use log::{info, warn};
+use log::{debug, info, warn};
 use serde::Serialize;
 use serde_json::json;
 
@@ -98,17 +98,20 @@ impl Engine {
     }
 }
 
-/// Starts the engine on its own thread. `on_status` runs on that thread;
-/// `on_activity` also runs on action threads, to report failures.
+/// Starts the engine on its own thread. `on_status` and `on_screen` run on
+/// that thread: the whole status when anything in it changes, or only the
+/// visor when nothing else did (every second or two, with a clock or the PC's
+/// usage). `on_activity` also runs on action threads, to report failures.
 pub fn spawn(
     config_path: PathBuf,
     on_status: impl Fn(&Status) + Send + 'static,
+    on_screen: impl Fn(&ScreenStatus) + Send + 'static,
     on_activity: impl Fn(&Activity) + Send + Sync + 'static,
 ) -> Engine {
     let (tx, rx) = channel();
     let (browser, tabs) = browser::start();
     let engine = Engine { commands: tx, browser: browser.clone() };
-    std::thread::spawn(move || State::new(config_path, rx, Box::new(on_status), Arc::new(on_activity), browser, tabs).run());
+    std::thread::spawn(move || State::new(config_path, rx, Box::new(on_status), Box::new(on_screen), Arc::new(on_activity), browser, tabs).run());
     engine
 }
 
@@ -116,7 +119,7 @@ pub fn spawn(
 pub fn run(config_path: PathBuf) -> Result<()> {
     let (_commands, rx) = channel();
     let (browser, tabs) = browser::start();
-    State::new(config_path, rx, Box::new(|_| {}), Arc::new(|_| {}), browser, tabs).run();
+    State::new(config_path, rx, Box::new(|_| {}), Box::new(|_| {}), Arc::new(|_| {}), browser, tabs).run();
     Ok(())
 }
 
@@ -128,6 +131,7 @@ struct State {
     modified: Option<SystemTime>,
     commands: Receiver<Command>,
     on_status: Box<dyn Fn(&Status) + Send>,
+    on_screen: Box<dyn Fn(&ScreenStatus) + Send>,
     on_activity: ActivitySink,
     foreground: Receiver<Option<String>>,
     browser: Bridge,
@@ -169,6 +173,8 @@ struct State {
     /// Read settings often until then: a key just changed one.
     settings_fast_until: Option<Instant>,
     status_dirty: bool,
+    /// Only the visor changed since the last status.
+    screen_dirty: bool,
     last_status: Status,
 }
 
@@ -177,6 +183,7 @@ impl State {
         config_path: PathBuf,
         commands: Receiver<Command>,
         on_status: Box<dyn Fn(&Status) + Send>,
+        on_screen: Box<dyn Fn(&ScreenStatus) + Send>,
         on_activity: ActivitySink,
         browser: Bridge,
         tabs: Receiver<Tabs>,
@@ -199,6 +206,7 @@ impl State {
             config_revision: 0,
             commands,
             on_status,
+            on_screen,
             on_activity,
             foreground: watch_foreground(),
             browser,
@@ -232,6 +240,7 @@ impl State {
             last_settings: Instant::now(),
             settings_fast_until: None,
             status_dirty: true,
+            screen_dirty: false,
             last_status: Status::default(),
         };
         state.drain_events();

@@ -23,7 +23,7 @@ tungstenite = "0.30"
 ureq = "3"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
   "Devices_Radios",
   "Foundation",
   "Foundation_Collections",
@@ -50,7 +50,7 @@ windows = { version = "0.61", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 # The `interface` macro (IPolicyConfig in system.rs) expands to `::windows_core` paths.
-windows-core = "0.61"
+windows-core = "0.62"
 
 # Tools with no tests: `cargo test` needn't link a harness for each (CI checks they build).
 [[bin]]

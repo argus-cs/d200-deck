@@ -20,7 +20,11 @@
     answer = null;
     try {
       const found = await checkUpdate();
-      answer = found ? `A versão ${found.version} está disponível: use o aviso no topo da janela.` : 'Você já tem a versão mais nova.';
+      answer = !found
+        ? 'Você já tem a versão mais nova.'
+        : found.installing
+          ? `A versão ${found.version} já está sendo baixada.`
+          : `A versão ${found.version} está disponível: use o aviso no topo da janela.`;
     } catch (e) {
       answer = `Não deu para procurar agora: ${e}`;
     } finally {

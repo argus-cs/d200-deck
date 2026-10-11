@@ -107,11 +107,17 @@ fn set_update_text(app: &AppHandle, text: &str) {
     }
 }
 
-/// Puts the version found, if any, in the menu.
-pub fn show_update(app: &AppHandle, version: Option<&str>) {
-    match version {
-        Some(version) => set_update_text(app, &format!("Atualizar para {version} e reiniciar")),
-        None => set_update_text(app, LOOK_FOR_UPDATES),
+/// Puts the version found, if any, in the menu. While it downloads, the item
+/// says so and cannot be clicked.
+pub fn show_update(app: &AppHandle, available: Option<&update::Available>) {
+    let text = match available {
+        Some(a) if a.installing => format!("Baixando a versão {}…", a.version),
+        Some(a) => format!("Atualizar para {} e reiniciar", a.version),
+        None => LOOK_FOR_UPDATES.to_string(),
+    };
+    set_update_text(app, &text);
+    if let Some(items) = app.try_state::<TrayItems>() {
+        let _ = items.update.set_enabled(!available.is_some_and(|a| a.installing));
     }
 }
 

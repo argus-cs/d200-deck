@@ -8,13 +8,21 @@
 
   /** A newer version found on GitHub, and how far its download is. */
   let update = $state<Update | null>(null);
-  let installing = $state(false);
   let downloaded = $state<number | null>(null);
   let updateError = $state<string | null>(null);
 
+  /** Whether it is downloading comes from the app, so a download started from the tray shows here too. */
+  function showUpdate(u: Update | null) {
+    update = u;
+    // A new download (maybe from the tray) clears the last failure, and one
+    // that stopped (it failed) starts from zero the next time.
+    if (u?.installing) updateError = null;
+    else downloaded = null;
+  }
+
   onMount(() => {
-    getUpdate().then((u) => (update = u));
-    const stopUpdate = onUpdate((u) => (update = u));
+    getUpdate().then(showUpdate);
+    const stopUpdate = onUpdate(showUpdate);
     const stopProgress = onUpdateProgress((percent) => (downloaded = percent));
     return () => {
       stopUpdate.then((unlisten) => unlisten());
@@ -24,14 +32,11 @@
 
   /** On Windows this never returns: the installer closes the app and opens the new version. */
   async function startUpdate() {
-    installing = true;
     updateError = null;
     try {
       await installUpdate();
     } catch (e) {
       updateError = String(e);
-      installing = false;
-      downloaded = null;
     }
   }
 </script>
@@ -52,7 +57,7 @@
 {#if update}
   <div class="banner" role="status">
     <Icon name="refresh" />
-    {#if installing}
+    {#if update.installing}
       <span>Baixando a versão {update.version}{downloaded === null ? '' : ` (${downloaded}%)`}. O D200 Deck fecha e abre de novo sozinho.</span>
     {:else}
       <span>

@@ -6,3 +6,23 @@ members = ["crates/d200", "crates/engine", "app/src-tauri"]
 version = "0.3.5"
 edition = "2021"
 license = "MIT"
+
+# What more than one crate uses, declared once so the versions stay the same.
+[workspace.dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+d200 = { path = "crates/d200" }
+deck-engine = { path = "crates/engine" }
+hidapi = "2"
+image = { version = "0.25", default-features = false }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The installer carries one binary: whole-program optimization makes it
+# smaller, for a longer build. Not panic = "abort": a panic on an action
+# thread must not take the app down (the engine's own is logged).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -51,6 +51,10 @@ jobs:
       - name: Test the driver and the engine
         run: cargo test -p d200 -p deck-engine
 
+      # The tools (probe, deckd, try-*) have no tests, so cargo test skips them.
+      - name: Check the tools
+        run: cargo check -p d200 -p deck-engine --bins
+
       - name: Build the frontend
         working-directory: app
         run: npm run build

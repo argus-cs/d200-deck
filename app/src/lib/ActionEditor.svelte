@@ -93,10 +93,10 @@
    * folder they break. Everything else opens by full path. */
   const targetFor = (app: RunningApp) => (/\\WindowsApps\\/i.test(app.path) ? app.exe : app.path);
 
-  function setTarget(target: string) {
-    if (action?.type !== 'open') return;
-    action.target = target;
-    action.args = null;
+  function setTarget(target: string, to = action) {
+    if (to?.type !== 'open') return;
+    to.target = target;
+    to.args = null;
     panel = 'none';
   }
 
@@ -106,10 +106,13 @@
   }
 
   async function chooseFile() {
+    // The file dialog leaves the window usable: the path goes to the action it
+    // was picked for, even if another key shows by then.
+    const to = action;
     pickError = null;
     try {
       const path = await pickFile();
-      if (path) setTarget(path);
+      if (path) setTarget(path, to);
     } catch (e) {
       pickError = String(e);
     }

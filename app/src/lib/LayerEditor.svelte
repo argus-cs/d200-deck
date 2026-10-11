@@ -241,6 +241,9 @@
   </main>
 
   <aside class="scroll" aria-label="Tecla selecionada">
+    <!-- A fresh editor for each key: a search, an open list or an error
+         belongs to the key it was made on. -->
+    {#key `${folderOf}:${selected}`}
     {#if folder && folderOf !== null && selected === 1}
       <div>
         <div class="muted small">Pasta · tecla 1</div>
@@ -296,6 +299,7 @@
         onopenfolder={openFolder}
       />
     {/if}
+    {/key}
   </aside>
 </div>
 

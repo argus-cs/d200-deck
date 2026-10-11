@@ -66,6 +66,10 @@
     (content as Record<string, unknown>)[name] = value;
   }
 
+  /** Sets the image of this content, even if the visor shows another one by
+   * the time an app or site icon arrives. */
+  const setImage = (content: ScreenContent) => (icon: string | null) => setOption(content, 'icon', icon);
+
   function setHold(kind: HoldKind) {
     if (!screen) return;
     editing = null;
@@ -141,7 +145,7 @@
   {:else if content.type === 'image'}
     <div class="field">
       <span class="name">Imagem</span>
-      <IconPicker icon={content.icon ?? null} color={shown.background} {glyphs} {edgePages} onchange={(icon) => setOption(content, 'icon', icon)} />
+      <IconPicker icon={content.icon ?? null} color={shown.background} {glyphs} {edgePages} onchange={setImage(content)} />
     </div>
   {:else if content.type === 'text'}
     <div class="field">

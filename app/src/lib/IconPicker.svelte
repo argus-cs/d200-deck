@@ -34,12 +34,15 @@
 
   /** Runs a chooser that returns the icon path to store, or null when cancelled. */
   async function choose(task: () => Promise<string | null>) {
+    // The icon arrives later, maybe after another key was picked: it goes
+    // where it was asked for (the parent's `onchange` is bound to that).
+    const apply = onchange;
     busy = true;
     error = null;
     try {
       const path = await task();
       if (path) {
-        onchange(path);
+        apply(path);
         panel = 'none';
       }
     } catch (e) {

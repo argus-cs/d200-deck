@@ -106,7 +106,7 @@ Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 - Interface: usage page `0x000C` (consumer control, `MI_00` no Windows).
 - Pacotes de 1024 bytes: `7C 7C` + comando (u16 big-endian) + tamanho total (u32 little-endian) + 1016 bytes; payloads maiores seguem em pacotes crus de 1024.
 - No Windows, cada write leva o byte de report ID `00` na frente (1025 bytes).
-- Layout: zip com `dummy.txt`, `Images/*.png` (196×196), `manifest.json` (chaves `"col_row"`) e `sentinel.txt`. Nenhum pacote de continuação pode começar com `0x00` ou `0x7C`.
+- Layout: zip com `dummy.txt`, `Images/*.png` (196×196), `manifest.json` (chaves `"col_row"`) e `sentinel.txt`. Nenhum pacote de continuação pode começar com `0x00` ou `0x7C`. O driver usa o crate `zip` 4, a mesma major do `tauri-plugin-updater` (compila um só), com a feature `deflate-flate2` (o deflate de antes; a `deflate` da 4 traz o `zopfli`). Trocar a versão do `zip` muda os bytes do arquivo: conferir no aparelho com `probe test` e `probe partial <n>` (validado com a 4.6.1 em 2026-10-11, firmware 5.3.3).
 - 14 posições: 13 teclas + o visor largo (índice 13).
 
 ### Validado no Windows (Fase 0, 2026-10-07)

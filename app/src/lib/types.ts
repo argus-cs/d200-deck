@@ -482,3 +482,8 @@ export function freeRuleName(rules: Rule[], wanted: string): string {
   while (taken.has(`${wanted} (${n})`)) n++;
   return `${wanted} (${n})`;
 }
+
+/** Whether a rule of the editors applies now. The engine's list is the saved
+ * config, so it is matched by name: by position, a rule just moved or deleted
+ * showed another rule's state until the engine reloaded the file. */
+export const ruleActive = (statuses: RuleStatus[], rule: Rule) => statuses.some((s) => s.name === rule.name && s.active);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { modeName, ruleTarget, type Rule, type RuleStatus, type View } from './types';
+  import { modeName, ruleActive, ruleTarget, type Rule, type RuleStatus, type View } from './types';
 
   let {
     view = $bindable(),
@@ -11,7 +11,7 @@
     view: View;
     /** `null` while the config isn't loaded. */
     rules: Rule[] | null;
-    /** Whether each rule applies now, by position. */
+    /** Which rules apply now, as the engine has them. */
     statuses: RuleStatus[];
     onmove: (from: number, to: number) => void;
   } = $props();
@@ -82,7 +82,7 @@
         <span class="nav-text">
           <span class="rule-name">
             <span class="ellipsis">{rule.name || 'Sem nome'}</span>
-            {#if statuses[i]?.active}<span class="valid"><span class="led"></span>valendo</span>{/if}
+            {#if ruleActive(statuses, rule)}<span class="valid"><span class="led"></span>valendo</span>{/if}
           </span>
           <span class="mono muted ellipsis">{target.target}</span>
         </span>

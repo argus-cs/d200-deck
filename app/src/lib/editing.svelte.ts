@@ -91,9 +91,13 @@ export class ConfigEditing {
   }
 
   private track(json: string) {
+    // Only the change an undo or redo made comes from the history: if it
+    // changed nothing, the next edit must still be recorded.
+    const fromHistory = this.fromHistory;
+    this.fromHistory = false;
     if (json === this.current) return;
     const now = Date.now();
-    if (!this.fromHistory) {
+    if (!fromHistory) {
       if (now - this.lastChangeAt > UNDO_GROUP_MS) {
         this.undoStack.push(this.current);
         if (this.undoStack.length > HISTORY_LIMIT) this.undoStack.shift();
@@ -101,7 +105,6 @@ export class ConfigEditing {
       this.redoStack = [];
       this.lastChangeAt = now;
     }
-    this.fromHistory = false;
     this.current = json;
     this.syncHistoryButtons();
     if (json === this.lastSaved) return;

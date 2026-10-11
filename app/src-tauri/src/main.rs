@@ -12,7 +12,7 @@ use deck_engine::rules::Simulation;
 use deck_engine::runtime::{self, Command, Engine, Status};
 use deck_engine::{context, iconify, icons};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_window_state::{StateFlags, WindowExt};
@@ -142,13 +142,13 @@ async fn app_icon(path: String) -> CmdResult<String> {
 
 /// Any file, for the "open" action: a program, a document, a shortcut.
 #[tauri::command]
-async fn pick_file(app: AppHandle) -> CmdResult<Option<String>> {
-    Ok(pick(&app, None)?.map(|path| path.display().to_string()))
+async fn pick_file(window: WebviewWindow) -> CmdResult<Option<String>> {
+    Ok(pick(&window, None)?.map(|path| path.display().to_string()))
 }
 
 #[tauri::command]
-async fn pick_app_icon(app: AppHandle) -> CmdResult<Option<String>> {
-    match pick(&app, Some(("Programa", &["exe"])))? {
+async fn pick_app_icon(window: WebviewWindow) -> CmdResult<Option<String>> {
+    match pick(&window, Some(("Programa", &["exe"])))? {
         None => Ok(None),
         Some(exe) => app_icon(exe.display().to_string()).await.map(Some),
     }
@@ -157,8 +157,8 @@ async fn pick_app_icon(app: AppHandle) -> CmdResult<Option<String>> {
 /// Lets the person pick a PNG and copies it into the config folder, so the
 /// key keeps working if the original moves. Returns the path to store.
 #[tauri::command]
-async fn pick_image(app: AppHandle) -> CmdResult<Option<String>> {
-    let Some(source) = pick(&app, Some(("Imagem PNG", &["png"])))? else {
+async fn pick_image(window: WebviewWindow) -> CmdResult<Option<String>> {
+    let Some(source) = pick(&window, Some(("Imagem PNG", &["png"])))? else {
         return Ok(None);
     };
     let stem = source.file_stem().unwrap_or_default().to_string_lossy().to_string();
@@ -177,8 +177,11 @@ async fn site_icon(state: State<'_, DeckState>, url: String, host: String) -> Cm
 }
 
 /// The file the person picks in Windows' dialog, or `None` if they cancel.
-fn pick(app: &AppHandle, filter: Option<(&str, &[&str])>) -> anyhow::Result<Option<PathBuf>> {
-    let mut dialog = app.dialog().file();
+/// The dialog belongs to the window that asked: it stays in front of it, and
+/// the window waits until it closes (without an owner, the dialog could hide
+/// behind it while the editors stayed usable).
+fn pick(window: &WebviewWindow, filter: Option<(&str, &[&str])>) -> anyhow::Result<Option<PathBuf>> {
+    let mut dialog = window.dialog().file().set_parent(window);
     if let Some((name, extensions)) = filter {
         dialog = dialog.add_filter(name, extensions);
     }

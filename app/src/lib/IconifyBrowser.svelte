@@ -53,9 +53,12 @@
     const shown = q ? sets.filter((s) => fold(`${s.name} ${s.prefix} ${s.category}`).includes(q)) : sets;
     const out: { category: string; sets: IconSet[] }[] = [];
     for (const set of shown) {
+      // Compared as shown: by the raw "" each set without one opened its own
+      // "Outras", and the repeated key emptied the whole list.
+      const category = set.category || 'Outras';
       const last = out[out.length - 1];
-      if (last?.category === set.category) last.sets.push(set);
-      else out.push({ category: set.category || 'Outras', sets: [set] });
+      if (last?.category === category) last.sets.push(set);
+      else out.push({ category, sets: [set] });
     }
     return out;
   });

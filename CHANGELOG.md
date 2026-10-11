@@ -2,6 +2,19 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.8 — 2026-10-11
+
+### Melhorias
+- Ao abrir o app, o D200 recebe as teclas cerca de 1 segundo antes: preparar a leitura do uso do PC levava esse tempo e agora acontece à parte, e só quando o visor mostra o uso
+- Os toques no D200 não esperam mais pela leitura do uso do PC nem pelo menu da bandeja, que podia demorar enquanto a janela abria
+
+### Correções
+- Se o Windows não liberar o acesso ao USB, o app continua funcionando (regras, janela e extensão) e tenta de novo a cada 2 segundos, e a janela e a bandeja mostram "Sem acesso ao USB"; antes, o app inteiro parava, sem aviso
+- As janelas de escolher arquivo (imagem PNG, programa .exe e o arquivo da ação "abrir") ficam presas à janela do app, como em qualquer programa: não somem mais atrás dela, e o app espera você escolher ou cancelar
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.7 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.7 — 2026-10-11
 
 ### Correções

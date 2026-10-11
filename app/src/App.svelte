@@ -10,7 +10,7 @@
   import RuleNav from './lib/RuleNav.svelte';
   import Settings from './lib/Settings.svelte';
   import TitleBar from './lib/TitleBar.svelte';
-  import { freeRuleName, type Glyph, type Key, type Rule, type Status, type View } from './lib/types';
+  import { freeRuleName, ruleActive, type Glyph, type Key, type Rule, type Status, type View } from './lib/types';
 
   let status = $state<Status | null>(null);
   let glyphs = $state<Glyph[]>([]);
@@ -112,7 +112,7 @@
           <LayerEditor
             bind:config={editing.config}
             index={view.index}
-            active={status.rules[view.index]?.active ?? false}
+            active={ruleActive(status.rules, editing.config.rules[view.index])}
             {glyphs}
             edgePages={status.edge_pages}
             {clipboard}

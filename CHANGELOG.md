@@ -2,6 +2,19 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.7 — 2026-10-11
+
+### Correções
+- Pedir a atualização duas vezes (no aviso da janela e na bandeja, ou recarregando a janela no meio) não baixa mais o instalador de novo: enquanto ele baixa, a bandeja mostra "Baixando a versão…" e a janela mostra o progresso, não importa de onde veio o pedido
+- Clicar no visor do layout padrão não conta mais como uma edição: numa instalação nova ou numa config antiga, o botão Desfazer acendia sozinho, e desfazer até ali prendia o histórico
+- Desfazer não faz mais a edição seguinte se perder quando volta para uma versão igual à atual (por exemplo, depois de mudar algo e voltar atrás muito rápido); antes, o Refazer passava a desfazer essa edição
+- A marca "valendo" não aparece mais na regra errada logo depois de arrastar ou apagar uma regra
+- Um ícone de app ou de site, uma imagem PNG ou o arquivo da ação "abrir" vão para a tecla em que foram escolhidos, mesmo se você clicar em outra tecla enquanto eles chegam; antes iam para a tecla que estivesse aberta. Trocar de tecla também limpa a busca de ícones e as listas abertas
+- A lista de coleções do "Mais ícones" continua aparecendo se o Iconify passar a mandar coleções sem categoria; antes, ela ficaria vazia
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.6 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.6 — 2026-10-10
 
 ### Melhorias

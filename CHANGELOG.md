@@ -2,6 +2,14 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.6 — 2026-10-10
+
+### Melhorias
+- O app ficou menor: o executável tem cerca de 12% a menos, sem mudar nada no que ele faz
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.5 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.5 — 2026-10-10
 
 ### Correções

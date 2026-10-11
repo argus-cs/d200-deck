@@ -168,6 +168,8 @@ struct State {
     screen_steps: HashMap<Option<String>, usize>,
     last_timer_tap: Option<Instant>,
     device: bool,
+    /// Why USB access didn't open, while it doesn't.
+    device_error: Option<String>,
     extension: bool,
     last_config: Instant,
     last_processes: Instant,
@@ -235,6 +237,7 @@ impl State {
             screen_steps: HashMap::new(),
             last_timer_tap: None,
             device: false,
+            device_error: None,
             extension: false,
             last_config: Instant::now(),
             last_processes: Instant::now(),
@@ -256,31 +259,32 @@ impl State {
     }
 
     fn run(mut self) {
-        let mut api = match HidApi::new() {
-            Ok(api) => api,
-            Err(e) => {
-                warn!("o acesso USB não abriu: {e}");
-                return;
-            }
-        };
+        let mut api: Option<HidApi> = None;
         let mut waiting_logged = false;
         loop {
-            match D200::open(&api) {
-                Ok(device) => {
-                    info!("D200 conectado");
-                    waiting_logged = false;
-                    self.device = true;
-                    if let Err(e) = self.session(&device) {
-                        warn!("conexão com o D200 perdida: {e:#}");
+            // Without USB access only the device waits: rules, the window and
+            // the extension keep going, and the access is tried again.
+            if api.is_none() {
+                api = self.open_usb();
+            }
+            if let Some(api) = &api {
+                match D200::open(api) {
+                    Ok(device) => {
+                        info!("D200 conectado");
+                        waiting_logged = false;
+                        self.device = true;
+                        if let Err(e) = self.session(&device) {
+                            warn!("conexão com o D200 perdida: {e:#}");
+                        }
+                        self.device = false;
+                        self.status_dirty = true;
                     }
-                    self.device = false;
-                    self.status_dirty = true;
+                    Err(_) if !waiting_logged => {
+                        info!("aguardando o D200 (feche o Ulanzi Studio se ele estiver aberto)");
+                        waiting_logged = true;
+                    }
+                    Err(_) => {}
                 }
-                Err(_) if !waiting_logged => {
-                    info!("aguardando o D200 (feche o Ulanzi Studio se ele estiver aberto)");
-                    waiting_logged = true;
-                }
-                Err(_) => {}
             }
             // Keep following apps and commands while the device is away.
             let until = Instant::now() + RECONNECT;
@@ -290,8 +294,30 @@ impl State {
                 }
                 sleep(IDLE_TICK);
             }
-            let _ = api.refresh_devices();
+            if let Some(api) = &mut api {
+                let _ = api.refresh_devices();
+            }
         }
+    }
+
+    /// Opens USB access; the status and the log say when that changes.
+    fn open_usb(&mut self) -> Option<HidApi> {
+        let error = match HidApi::new() {
+            Ok(api) => {
+                if self.device_error.take().is_some() {
+                    info!("acesso USB aberto");
+                    self.status_dirty = true;
+                }
+                return Some(api);
+            }
+            Err(e) => format!("o acesso USB não abriu: {e}"),
+        };
+        if self.device_error.as_ref() != Some(&error) {
+            warn!("{error} (tentando de novo a cada {} s)", RECONNECT.as_secs());
+            self.device_error = Some(error);
+            self.status_dirty = true;
+        }
+        None
     }
 
     fn session(&mut self, device: &D200) -> Result<()> {

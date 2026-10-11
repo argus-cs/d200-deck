@@ -37,8 +37,8 @@
 <header class="titlebar" data-tauri-drag-region>
   <div class="brand" data-tauri-drag-region><Icon name="grid" size={20} /> D200 Deck</div>
   <div class="status" data-tauri-drag-region>
-    <span class="pill" class:off={!status.device} data-tauri-drag-region>
-      <span class="led"></span>{status.device ? 'D200 conectado' : 'D200 desconectado'}
+    <span class="pill" class:off={!status.device} title={status.device_error ?? undefined} data-tauri-drag-region>
+      <span class="led"></span>{status.device ? 'D200 conectado' : status.device_error ? 'Sem acesso ao USB' : 'D200 desconectado'}
     </span>
     <span class="pill" class:off={!status.extension} data-tauri-drag-region>
       <span class="led"></span>{status.extension ? 'Extensão conectada' : 'Extensão desconectada'}

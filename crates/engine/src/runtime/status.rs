@@ -12,6 +12,9 @@ pub struct Status {
     /// Goes up each time config.json is applied, so editors know to reload it.
     pub config_revision: u64,
     pub device: bool,
+    /// Why the app can't look for the D200 now (USB access didn't open); it
+    /// keeps trying.
+    pub device_error: Option<String>,
     pub extension: bool,
     pub paused: bool,
     pub simulation: Option<Simulation>,
@@ -223,6 +226,7 @@ impl State {
             edge_tabs,
             edge_pages,
             device: self.device,
+            device_error: self.device_error.clone(),
             extension: self.extension,
             paused: self.paused,
             simulation: self.simulation.clone(),

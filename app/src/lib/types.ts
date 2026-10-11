@@ -33,6 +33,8 @@ export interface Status {
   config_error: string | null;
   config_revision: number;
   device: boolean;
+  /** Why the app can't look for the D200 now (USB access); it keeps trying. */
+  device_error: string | null;
   extension: boolean;
   paused: boolean;
   simulation: Simulation | null;

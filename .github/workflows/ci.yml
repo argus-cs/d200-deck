@@ -1,15 +1,19 @@
-# Runs on every pull request to main: the app version must have its notes in
-# CHANGELOG.md, then the tests and checks. The "Proteger a main" ruleset
-# requires the "Testes" job to pass before a pull request can be merged.
+# Runs on every pull request to main and after each merge: the app version
+# must have its notes in CHANGELOG.md, then the tests and checks. The
+# "Proteger a main" ruleset requires the "Testes" job to pass before a pull
+# request can be merged. The run on main also tests the very commit a release
+# tag goes on, and saves the build cache every pull request starts from.
 name: CI
 
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
 
-# A new push to the same pull request cancels the run still going.
+# A new push to the same pull request (or to main) cancels the run still going.
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 # Reading the code is all the tests need.
@@ -42,7 +46,11 @@ jobs:
         with:
           toolchain: stable
 
+      # Only main saves the cache: a pull request's cache can't be read by the
+      # next one (each compiled from scratch), and main's can by all of them.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install the frontend packages
         working-directory: app

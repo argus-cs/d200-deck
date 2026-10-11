@@ -11,7 +11,7 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 ## Fluxo de mudanças
 Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR com o job "Testes" verde (ver "Versões e atualizações").
 1. Partir da `main` atualizada (`git switch main && git pull --ff-only`) e criar uma branch em minúsculo: `feature/…`, `fix/…`, `refactor/…`, `docs/…` ou `ci/…`.
-2. Implementar com testes. Antes do commit, rodar `cargo test -p d200 -p deck-engine` e `npm run check` (em `app`), mais `cargo check -p d200-deck` se o app Tauri mudou. O Rust fica em `%USERPROFILE%\.cargo\bin`.
+2. Implementar com testes. Antes do commit, rodar `cargo test -p d200 -p deck-engine` e `npm run check` (em `app`), mais `cargo check -p d200-deck` se o app Tauri mudou e `cargo check -p d200 -p deck-engine --bins` se uma ferramenta (`probe`, `deckd`, `try-*`) mudou: elas não têm testes, e o `cargo test` não as compila (`test = false`). O Rust fica em `%USERPROFILE%\.cargo\bin`.
 3. Atualizar este arquivo e o `README.md` quando a mudança alterar comportamento, comandos, decisões ou armadilhas.
 4. Commit em inglês, com a mensagem aprovada pelo usuário antes de rodar.
 5. `git push -u origin HEAD:refs/heads/<branch>` (nome em minúsculo explícito) e `gh pr create --base main`, com a descrição (Summary, Changes, Testing) aprovada antes.
@@ -69,6 +69,7 @@ Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR 
 - Atualização no app (`app/src-tauri/src/update.rs`, `tauri-plugin-updater`): procura 20 s depois de abrir e a cada 6 h em `https://github.com/argus-cs/d200-deck/releases/latest/download/latest.json` (por isso o repositório é público). Achou: aviso no topo da janela e "Atualizar para X e reiniciar" na bandeja; só instala quando a pessoa manda. No Windows o instalador (modo `passive`) fecha o app e abre de novo com os mesmos argumentos.
 - **Chave de assinatura:** a privada fica em `%USERPROFILE%\.tauri\d200-deck.key` (senha em `d200-deck.password`) e nos secrets `TAURI_SIGNING_PRIVATE_KEY` e `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` do environment `release` do GitHub, que só tags `v*` e a `main` podem usar (o job do `release.yml` declara `environment: release`; para trocar: `gh secret set <nome> --env release < arquivo`); a pública está em `tauri.conf.json` (`plugins.updater.pubkey`). **Sem a privada, os apps instalados não aceitam mais atualizações**: manter cópia fora deste PC. Build local assinado: `TAURI_SIGNING_PRIVATE_KEY=<caminho> TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<senha> npx tauri build`.
 - O `generate_context!` precisa do crate `serde_json` no app quando o `tauri.conf.json` tem `plugins`.
+- Dependências usadas por mais de um crate ficam em `[workspace.dependencies]` no `Cargo.toml` da raiz (os crates herdam com `workspace = true` e só acrescentam features). O `[profile.release]` usa `lto` e `codegen-units = 1` (executável menor, compilação mais longa) e não usa `panic = "abort"`: um panic numa thread de ação não pode derrubar o app.
 
 ## Interface (depois da Fase 5)
 - Janela sem moldura (`decorations(false)`), barra de título própria com `data-tauri-drag-region`; posição/tamanho lembrados por `tauri-plugin-window-state`.

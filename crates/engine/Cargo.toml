@@ -6,17 +6,17 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-anyhow = "1"
+anyhow.workspace = true
 base64 = "0.22"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-d200 = { path = "../d200" }
+chrono.workspace = true
+d200.workspace = true
 env_logger = "0.11"
-hidapi = "2"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-log = "0.4"
+hidapi.workspace = true
+image = { workspace = true, features = ["png", "jpeg"] }
+log.workspace = true
 resvg = { version = "0.48", default-features = false, features = ["text"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde.workspace = true
+serde_json.workspace = true
 sysinfo = { version = "0.39", default-features = false, features = ["system", "network"] }
 tungstenite = "0.30"
 # Iconify downloads (iconify.rs).
@@ -51,6 +51,27 @@ windows = { version = "0.61", features = [
 ] }
 # The `interface` macro (IPolicyConfig in system.rs) expands to `::windows_core` paths.
 windows-core = "0.61"
+
+# Tools with no tests: `cargo test` needn't link a harness for each (CI checks they build).
+[[bin]]
+name = "deckd"
+test = false
+
+[[bin]]
+name = "try-iconify"
+test = false
+
+[[bin]]
+name = "try-open"
+test = false
+
+[[bin]]
+name = "try-screen"
+test = false
+
+[[bin]]
+name = "try-system"
+test = false
 
 [dev-dependencies]
 # Checks that browser::EXTENSION_ID matches the key in the extension's manifest.

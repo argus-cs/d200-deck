@@ -55,6 +55,12 @@
   const SUGGESTED_OFF = new Set(SETTINGS.flatMap((s) => (s.off ? [s.off.icon] : [])));
   const SECOND_COLOR = '#3A1616';
 
+  /** Sets the icon of this face, even if another key shows by the time an
+   * app or site icon arrives. */
+  const setIcon = (face: KeyFace | null | undefined) => (icon: string | null) => {
+    if (face) face.icon = icon;
+  };
+
   type Paint = 'color' | 'icon_color' | 'text_color' | 'border';
 
   function paint(face: KeyFace | null | undefined, field: Paint, color: string | null) {
@@ -160,7 +166,7 @@
 {:else}
   <div class="field">
     <span class="name">Ícone</span>
-    <IconPicker icon={key.icon} color={key.color} iconColor={key.icon_color} {glyphs} {edgePages} onchange={(icon) => (key.icon = icon)} />
+    <IconPicker icon={key.icon} color={key.color} iconColor={key.icon_color} {glyphs} {edgePages} onchange={setIcon(key)} />
   </div>
 
   <div class="field">
@@ -247,9 +253,7 @@
             iconColor={key.toggle.icon_color}
             {glyphs}
             {edgePages}
-            onchange={(icon) => {
-              if (key.toggle) key.toggle.icon = icon;
-            }}
+            onchange={setIcon(key.toggle)}
           />
         </div>
         <div class="field">

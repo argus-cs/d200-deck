@@ -591,7 +591,7 @@ mod win {
             unsafe {
                 let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             }
-            let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|op| op.get()) {
+            let manager = match GlobalSystemMediaTransportControlsSessionManager::RequestAsync().and_then(|op| op.join()) {
                 Ok(manager) => manager,
                 Err(e) => {
                     log::warn!("o Windows não informa o que está tocando: {e}");
@@ -618,7 +618,7 @@ mod win {
     /// thumbnail is read once per song rather than every 2 s.
     fn current(manager: &GlobalSystemMediaTransportControlsSessionManager, previous: Option<&NowPlaying>) -> Option<NowPlaying> {
         let session = manager.GetCurrentSession().ok()?;
-        let properties = session.TryGetMediaPropertiesAsync().ok()?.get().ok()?;
+        let properties = session.TryGetMediaPropertiesAsync().ok()?.join().ok()?;
         let title = properties.Title().ok()?.to_string();
         if title.is_empty() {
             return None;
@@ -644,10 +644,10 @@ mod win {
     }
 
     fn thumbnail(properties: &GlobalSystemMediaTransportControlsSessionMediaProperties) -> Option<Vec<u8>> {
-        let stream = properties.Thumbnail().ok()?.OpenReadAsync().ok()?.get().ok()?;
+        let stream = properties.Thumbnail().ok()?.OpenReadAsync().ok()?.join().ok()?;
         let size = u32::try_from(stream.Size().ok()?).ok().filter(|&s| s > 0)?;
         let reader = DataReader::CreateDataReader(&stream.GetInputStreamAt(0).ok()?).ok()?;
-        reader.LoadAsync(size).ok()?.get().ok()?;
+        reader.LoadAsync(size).ok()?.join().ok()?;
         let mut bytes = vec![0u8; size as usize];
         reader.ReadBytes(&mut bytes).ok()?;
         Some(bytes)

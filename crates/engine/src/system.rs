@@ -313,7 +313,7 @@ mod win {
             }
         }
         let list: Vec<Radio> = Radio::GetRadiosAsync()
-            .and_then(|op| op.get())
+            .and_then(|op| op.join())
             .map(|radios| radios.into_iter().collect())
             .unwrap_or_default();
         let found = of_kind(&list);
@@ -352,13 +352,13 @@ mod win {
             bail!("este PC não tem {name}");
         }
         let on = wanted(set, radio_on(kind));
-        let access = Radio::RequestAccessAsync()?.get()?;
+        let access = Radio::RequestAccessAsync()?.join()?;
         if access != RadioAccessStatus::Allowed {
             bail!("o Windows não deixou mudar o {name}{}", denied(access));
         }
         let state = if on { RadioState::On } else { RadioState::Off };
         for radio in radios {
-            let status = radio.SetStateAsync(state)?.get()?;
+            let status = radio.SetStateAsync(state)?.join()?;
             if status != RadioAccessStatus::Allowed {
                 bail!("o Windows não deixou mudar o {name}{}", denied(status));
             }
@@ -694,7 +694,7 @@ mod win {
     fn sleep() -> Result<()> {
         enable_shutdown_privilege()?;
         if !unsafe { SetSuspendState(false, false, false) } {
-            bail!("o Windows não suspendeu: {}", windows::core::Error::from_win32().message());
+            bail!("o Windows não suspendeu: {}", windows::core::Error::from_thread().message());
         }
         Ok(())
     }

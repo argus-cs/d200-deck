@@ -36,7 +36,7 @@ pub fn watch_foreground() -> Receiver<Option<String>> {
 }
 
 #[cfg(windows)]
-pub use win::{bring_to_front, give_back, visible_apps};
+pub use win::{bring_to_front, give_back, process_path, visible_apps};
 
 /// An app with a window open.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,6 +118,11 @@ mod win {
         }
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+        process_path(pid)
+    }
+
+    /// The full exe path of a process.
+    pub fn process_path(pid: u32) -> Option<String> {
         if pid == 0 {
             return None;
         }

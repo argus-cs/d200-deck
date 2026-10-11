@@ -31,7 +31,7 @@ use crate::rules::{
     Slot, Tabs, BROWSER,
 };
 use crate::config::{Screen, ScreenContent, ScreenHold};
-use crate::screen::{self, NowPlaying, Timer, Usage, UsageSampler};
+use crate::screen::{self, NowPlaying, Timer, Usage};
 use crate::system;
 
 mod keys;
@@ -102,6 +102,8 @@ impl Engine {
 /// that thread: the whole status when anything in it changes, or only the
 /// visor when nothing else did (every second or two, with a clock or the PC's
 /// usage). `on_activity` also runs on action threads, to report failures.
+/// They must not wait for anything (the app's main thread, a lock held long):
+/// the device's keys are read on the same thread, in between.
 pub fn spawn(
     config_path: PathBuf,
     on_status: impl Fn(&Status) + Send + 'static,
@@ -151,9 +153,9 @@ struct State {
     live: Live,
     folder: Option<OpenFolder>,
     icons: IconCache,
-    sampler: UsageSampler,
+    /// Started the first time a visor shows the PC's use.
+    usage_rx: Option<Receiver<Usage>>,
     usage: Usage,
-    last_usage: Instant,
     /// Started the first time a visor shows what is playing.
     playing_rx: Option<Receiver<Option<NowPlaying>>>,
     playing: Option<NowPlaying>,
@@ -222,9 +224,8 @@ impl State {
             live: Live::default(),
             folder: None,
             icons: HashMap::new(),
-            sampler: UsageSampler::default(),
+            usage_rx: None,
             usage: Usage::default(),
-            last_usage: Instant::now(),
             playing_rx: None,
             playing: None,
             timer: Timer::default(),

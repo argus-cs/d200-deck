@@ -509,6 +509,24 @@ impl UsageSampler {
     }
 }
 
+/// Sends the PC's use every `every`, sampled on a thread of its own: opening
+/// the GPU counters takes over a second (more at logon) and each sample about
+/// 10 ms, which the device loop, reading the keys, would wait for. The first
+/// one comes after `every`, as rates need two samples.
+pub fn watch_usage(every: Duration) -> std::sync::mpsc::Receiver<Usage> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut sampler = UsageSampler::default();
+        loop {
+            std::thread::sleep(every);
+            if tx.send(sampler.sample()).is_err() {
+                return;
+            }
+        }
+    });
+    rx
+}
+
 /// Sends what Windows says is playing (any player that shows in the media
 /// flyout), checked every 2 s.
 #[cfg(windows)]
@@ -692,6 +710,12 @@ mod tests {
             let background = img.get_pixel(1, 1).0;
             assert!(img.pixels().any(|p| p.0 != background), "{content:?} drew nothing");
         }
+    }
+
+    #[test]
+    fn usage_comes_from_its_own_thread() {
+        let usage = watch_usage(Duration::from_millis(50)).recv_timeout(Duration::from_secs(20)).unwrap();
+        assert!(usage.memory > 0.0, "{}", usage.memory);
     }
 
     #[test]

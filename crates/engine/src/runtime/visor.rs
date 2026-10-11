@@ -56,9 +56,14 @@ impl State {
     pub(super) fn refresh_screen(&mut self, device: Option<&D200>) -> Result<()> {
         let (screen, _) = self.current_screen();
         let device_stats = screen.content == ScreenContent::DeviceStats;
-        if (screen::uses_usage(&screen) || device_stats) && self.last_usage.elapsed() >= USAGE_POLL {
-            self.usage = self.sampler.sample();
-            self.last_usage = Instant::now();
+        if (screen::uses_usage(&screen) || device_stats) && self.usage_rx.is_none() {
+            self.usage_rx = Some(screen::watch_usage(USAGE_POLL));
+        }
+        // Drained even when no visor shows it any more, or samples would pile up.
+        if let Some(rx) = &self.usage_rx {
+            while let Ok(usage) = rx.try_recv() {
+                self.usage = usage;
+            }
         }
         if let Some(rx) = &self.playing_rx {
             while let Ok(playing) = rx.try_recv() {

@@ -353,7 +353,10 @@ fn main() {
                 move |status| {
                     *handle.state::<DeckState>().status.lock().unwrap() = status.clone();
                     let _ = handle.emit("status", status);
-                    tray::update(&handle, status);
+                    // Each change to the menu waits for the main thread: do it
+                    // there, not here, where the device's keys wait in turn.
+                    let (tray_handle, status) = (handle.clone(), status.clone());
+                    let _ = handle.run_on_main_thread(move || tray::update(&tray_handle, &status));
                 },
                 // Only the visor changed: a few KB instead of every key's image.
                 move |screen| {

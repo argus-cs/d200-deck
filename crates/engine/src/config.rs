@@ -537,7 +537,8 @@ impl Config {
         if path.exists() {
             return Self::load(path);
         }
-        let config = Self::default();
+        let mut config = Self::default();
+        config.fill_screen();
         config.save(path)?;
         log::info!("config criada com o layout padrão em {}", path.display());
         Ok(config)
@@ -547,8 +548,19 @@ impl Config {
         let text = std::fs::read_to_string(path).with_context(|| format!("não consegui ler {}", path.display()))?;
         let mut config: Self = serde_json::from_str(&text).with_context(|| format!("JSON inválido em {}", path.display()))?;
         config.rename_repeated_rules();
+        config.fill_screen();
         config.validate()?;
         Ok(config)
+    }
+
+    /// Configs from before the visor only have `window`, and `Default` leaves
+    /// `screen` empty (missing fields come from it, so a filled one would
+    /// replace what `window` means). The window edits `screen`, and filling it
+    /// in there counted as an edit nobody made.
+    fn fill_screen(&mut self) {
+        if self.screen.is_none() {
+            self.screen = Some(self.default_screen());
+        }
     }
 
     /// Rules are told apart by name (an open folder, a two-state key), so two
@@ -738,6 +750,18 @@ mod tests {
         let names: Vec<&str> = loaded.rules.iter().map(|rule| rule.name.as_str()).collect();
         // "A (2)" was already some rule's name, so the second "A" skips it.
         assert_eq!(names, ["A", "A (3)", "A (2)", "", "regra 5", "A (4)"]);
+    }
+
+    #[test]
+    fn configs_load_with_their_visor() {
+        let path = std::env::temp_dir().join("deck-engine-visor-test").join("config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{ "window": "stats" }"#).unwrap();
+        assert_eq!(Config::load(&path).unwrap().screen, Some(Screen::new(ScreenContent::DeviceStats)));
+        // A new config, as on the first run.
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(Config::load_or_create(&path).unwrap().screen, Some(Screen::new(ScreenContent::DeviceClock)));
+        assert_eq!(Config::load(&path).unwrap().screen, Some(Screen::new(ScreenContent::DeviceClock)));
     }
 
     #[test]

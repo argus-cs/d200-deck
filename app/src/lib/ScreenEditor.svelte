@@ -23,7 +23,8 @@
     glyphs,
     edgePages,
   }: {
-    /** This layer's visor; empty in a rule that keeps the default one. */
+    /** This layer's visor; empty in a rule that keeps the default one. The
+     * default layout always has one: the engine fills it in older configs. */
     screen: Screen | null | undefined;
     inRule: boolean;
     /** The default visor (what a rule falls back to, or the default before it is saved). */
@@ -31,11 +32,6 @@
     glyphs: Glyph[];
     edgePages: EdgePage[];
   } = $props();
-
-  // The default layout always has a visor of its own: start from the current one.
-  $effect(() => {
-    if (!inRule && !screen) screen = $state.snapshot(inherited);
-  });
 
   type HoldKind = 'none' | ScreenHold['type'];
   const HOLD_KINDS: { value: HoldKind; label: string; hint: string }[] = [

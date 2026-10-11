@@ -71,6 +71,8 @@ export const renderScreen = (screen: Screen) => invoke<string | null>('render_sc
 export interface Update {
   version: string;
   notes: string | null;
+  /** Its installer is downloading, asked from the window or the tray. */
+  installing: boolean;
 }
 
 export const getUpdate = () => invoke<Update | null>('get_update');

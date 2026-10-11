@@ -137,7 +137,11 @@ pub fn update(app: &AppHandle, status: &Status) {
     let Some(items) = app.try_state::<TrayItems>() else {
         return;
     };
-    let device = if status.device { "D200 conectado" } else { "D200 desconectado" };
+    let device = match (status.device, &status.device_error) {
+        (true, _) => "D200 conectado",
+        (false, Some(_)) => "Sem acesso ao USB",
+        (false, None) => "D200 desconectado",
+    };
     let active: Vec<&str> = status.rules.iter().filter(|r| r.active).map(|r| r.name.as_str()).collect();
     let rules = if status.paused {
         "Regras pausadas".to_string()

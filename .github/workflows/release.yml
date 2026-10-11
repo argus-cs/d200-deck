@@ -66,19 +66,19 @@ jobs:
         with:
           toolchain: stable
 
+      # A tag's cache can't be read by the next tag: only manual runs on main
+      # save one (over 1 GB each), and tags start from it.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install the frontend packages
         working-directory: app
         run: npm ci
 
-      - name: Test the driver and the engine
-        run: cargo test -p d200 -p deck-engine
-
-      - name: Check the frontend types
-        working-directory: app
-        run: npm run check
-
+      # No tests here: the tag goes on a merge commit of main, which CI tested
+      # in its pull request and again after the merge (ci.yml). Testing would
+      # compile everything a second time, in debug.
       - name: Build, and draft the release on a tag
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:

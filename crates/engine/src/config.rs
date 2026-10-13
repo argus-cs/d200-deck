@@ -773,6 +773,14 @@ mod tests {
     }
 
     #[test]
+    fn demo_config_is_valid() {
+        // The README screenshots are taken with it (docs/screenshots/capture.mjs).
+        let config: Config = serde_json::from_str(include_str!("../../../docs/screenshots/demo-config.json")).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.rules.len(), 4);
+    }
+
+    #[test]
     fn parses_every_action_type() {
         let json = r##"{
             "keys": {

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Activity, Config, Glyph, RunningApp, Screen, ScreenStatus, Simulation, Status } from './types';
+import type { Activity, Config, Glyph, RunningApp, Screen, ScreenStatus, Setting, Simulation, Status } from './types';
 
 export const getStatus = () => invoke<Status>('get_status');
 export const onStatus = (handler: (status: Status) => void) =>
@@ -22,7 +22,8 @@ export const glyphs = () => invoke<Glyph[]>('glyphs');
 export const runningApps = () => invoke<RunningApp[]>('running_apps');
 /** Apps with a window open now, leaving out D200 Deck itself. */
 export const otherApps = async () => (await runningApps()).filter((app) => app.exe.toLowerCase() !== 'd200-deck.exe');
-export const audioOutputs = () => invoke<string[]>('audio_outputs');
+/** The audio outputs or inputs on now, for the setting that picks one. */
+export const audioDevices = (setting: Setting) => invoke<string[]>('audio_devices', { setting });
 
 /** An Iconify set, as the "more icons" window lists it (`iconify::IconSet`). */
 export interface IconSet {

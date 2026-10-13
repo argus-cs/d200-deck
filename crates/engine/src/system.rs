@@ -1,6 +1,6 @@
 //! Windows settings a key can switch or run: Bluetooth, Wi-Fi, mute, the
-//! theme, keeping the PC awake, the audio output, projection, power mode,
-//! sleep, the monitor and the recycle bin. `state` reads the real setting,
+//! theme, keeping the PC awake, the audio output and input, projection, power
+//! mode, sleep, the monitor and the recycle bin. `state` reads the real setting,
 //! so a key shows what Windows has rather than what the last press did.
 
 use anyhow::{bail, Result};
@@ -20,6 +20,8 @@ pub enum Setting {
     KeepAwake,
     // One value out of several.
     AudioOutput,
+    /// The default microphone.
+    AudioInput,
     Projection,
     PowerMode,
     // Run once.
@@ -52,7 +54,7 @@ const PROJECTIONS: &[&str] = &["internal", "clone", "extend", "external"];
 const POWER_MODES: &[&str] = &["efficiency", "balanced", "performance"];
 
 impl Setting {
-    pub const ALL: [Setting; 12] = [
+    pub const ALL: [Setting; 13] = [
         Setting::Bluetooth,
         Setting::Wifi,
         Setting::Microphone,
@@ -60,6 +62,7 @@ impl Setting {
         Setting::DarkTheme,
         Setting::KeepAwake,
         Setting::AudioOutput,
+        Setting::AudioInput,
         Setting::Projection,
         Setting::PowerMode,
         Setting::Sleep,
@@ -75,13 +78,13 @@ impl Setting {
             | Setting::Sound
             | Setting::DarkTheme
             | Setting::KeepAwake => Kind::OnOff,
-            Setting::AudioOutput | Setting::Projection | Setting::PowerMode => Kind::Choice,
+            Setting::AudioOutput | Setting::AudioInput | Setting::Projection | Setting::PowerMode => Kind::Choice,
             Setting::Sleep | Setting::MonitorOff | Setting::EmptyRecycleBin => Kind::Once,
         }
     }
 
-    /// Fixed values of a Choice setting; empty for AudioOutput (any device
-    /// name) and for the others.
+    /// Fixed values of a Choice setting; empty for the audio devices (any
+    /// device name) and for the others.
     pub fn choices(self) -> &'static [&'static str] {
         match self {
             Setting::Projection => PROJECTIONS,
@@ -99,6 +102,7 @@ impl Setting {
             Setting::DarkTheme => "tema escuro",
             Setting::KeepAwake => "manter acordado",
             Setting::AudioOutput => "saída de áudio",
+            Setting::AudioInput => "entrada de áudio",
             Setting::Projection => "projeção",
             Setting::PowerMode => "modo de energia",
             Setting::Sleep => "suspender",
@@ -115,7 +119,7 @@ impl Switch {
 }
 
 /// Before anything reaches config.json: Choice settings need a value (one of
-/// `choices()`, or any device name for AudioOutput); the others take none.
+/// `choices()`, or any device name for the audio devices); the others take none.
 pub fn validate(setting: Setting, value: Option<&str>) -> Result<()> {
     let name = setting.name();
     let value = value.map(str::trim).filter(|v| !v.is_empty());
@@ -193,15 +197,16 @@ pub fn state(_: Setting, _: Option<&str>) -> Option<bool> {
     None
 }
 
-/// Friendly names of the active audio outputs, for the editor's picker.
+/// Friendly names of the active devices an audio setting picks from (the
+/// outputs or the inputs), for the editor's picker; empty for the others.
 #[cfg(windows)]
-pub fn audio_outputs() -> Result<Vec<String>> {
+pub fn audio_devices(setting: Setting) -> Result<Vec<String>> {
     win::com();
-    Ok(win::outputs()?.into_iter().map(|(_, name)| name).collect())
+    win::audio_devices(setting)
 }
 
 #[cfg(not(windows))]
-pub fn audio_outputs() -> Result<Vec<String>> {
+pub fn audio_devices(_: Setting) -> Result<Vec<String>> {
     Ok(Vec::new())
 }
 
@@ -272,7 +277,8 @@ mod win {
             Setting::Sound => set_unmuted(eRender, set),
             Setting::DarkTheme => set_dark_theme(set),
             Setting::KeepAwake => set_keep_awake(set),
-            Setting::AudioOutput => set_audio_output(value),
+            Setting::AudioOutput => set_default_device(eRender, value),
+            Setting::AudioInput => set_default_device(eCapture, value),
             Setting::Projection => set_projection(value),
             Setting::PowerMode => set_power_mode(value),
             Setting::Sleep => sleep(),
@@ -290,7 +296,8 @@ mod win {
             Setting::Sound => unmuted(eRender),
             Setting::DarkTheme => dark_theme(),
             Setting::KeepAwake => Some(keeping_awake()),
-            Setting::AudioOutput => is_default_output(value?),
+            Setting::AudioOutput => is_default_device(eRender, value?),
+            Setting::AudioInput => is_default_device(eCapture, value?),
             Setting::Projection => Some(current_topology()? == topology(value?)?.1),
             Setting::PowerMode => Some(current_power_mode()? == power_mode(value?)?),
             Setting::Sleep | Setting::MonitorOff | Setting::EmptyRecycleBin => None,
@@ -518,7 +525,7 @@ mod win {
         Ok(())
     }
 
-    // The default audio output.
+    // The default audio output and input.
 
     /// Undocumented: the interface the Sound control panel uses to change the
     /// default device, which EarTrumpet and SoundSwitch rely on too. Only
@@ -561,10 +568,10 @@ mod win {
         }
     }
 
-    /// (id, friendly name) of each active output.
-    pub fn outputs() -> Result<Vec<(String, String)>> {
+    /// (id, friendly name) of each active output (eRender) or input (eCapture).
+    fn devices(flow: EDataFlow) -> Result<Vec<(String, String)>> {
         unsafe {
-            let devices = enumerator()?.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
+            let devices = enumerator()?.EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE)?;
             (0..devices.GetCount()?)
                 .map(|i| {
                     let device = devices.Item(i)?;
@@ -587,19 +594,29 @@ mod win {
         }
     }
 
-    fn output_id(name: &str) -> Result<Option<String>> {
-        let name = name.to_lowercase();
-        Ok(outputs()?.into_iter().find(|(_, n)| n.to_lowercase() == name).map(|(id, _)| id))
+    pub fn audio_devices(setting: Setting) -> Result<Vec<String>> {
+        let flow = match setting {
+            Setting::AudioOutput => eRender,
+            Setting::AudioInput => eCapture,
+            _ => return Ok(Vec::new()),
+        };
+        Ok(devices(flow)?.into_iter().map(|(_, name)| name).collect())
     }
 
-    fn is_default_output(name: &str) -> Option<bool> {
-        let id = output_id(name).ok()??;
-        let default = unsafe { enumerator().ok()?.GetDefaultAudioEndpoint(eRender, eConsole).ok()? };
+    fn device_named(flow: EDataFlow, name: &str) -> Result<Option<String>> {
+        let name = name.to_lowercase();
+        Ok(devices(flow)?.into_iter().find(|(_, n)| n.to_lowercase() == name).map(|(id, _)| id))
+    }
+
+    fn is_default_device(flow: EDataFlow, name: &str) -> Option<bool> {
+        let id = device_named(flow, name).ok()??;
+        let default = unsafe { enumerator().ok()?.GetDefaultAudioEndpoint(flow, eConsole).ok()? };
         Some(device_id(&default).ok()? == id)
     }
 
-    fn set_audio_output(name: &str) -> Result<()> {
-        let id = output_id(name)?.ok_or_else(|| anyhow!("nenhuma saída de áudio ativa se chama {name:?}"))?;
+    fn set_default_device(flow: EDataFlow, name: &str) -> Result<()> {
+        let what = if flow == eCapture { "entrada" } else { "saída" };
+        let id = device_named(flow, name)?.ok_or_else(|| anyhow!("nenhuma {what} de áudio ativa se chama {name:?}"))?;
         Ok(policy::set_default(&id)?)
     }
 
@@ -755,6 +772,7 @@ mod tests {
             (Setting::DarkTheme, "dark_theme"),
             (Setting::KeepAwake, "keep_awake"),
             (Setting::AudioOutput, "audio_output"),
+            (Setting::AudioInput, "audio_input"),
             (Setting::PowerMode, "power_mode"),
             (Setting::MonitorOff, "monitor_off"),
             (Setting::EmptyRecycleBin, "empty_recycle_bin"),
@@ -783,6 +801,7 @@ mod tests {
             }
         }
         assert_eq!(Setting::AudioOutput.kind(), Kind::Choice);
+        assert_eq!(Setting::AudioInput.kind(), Kind::Choice);
         assert_eq!(Setting::Microphone.kind(), Kind::OnOff);
         assert_eq!(Setting::Sleep.kind(), Kind::Once);
     }
@@ -798,6 +817,8 @@ mod tests {
         assert!(validate(Setting::PowerMode, Some("performance")).is_ok());
         assert!(validate(Setting::AudioOutput, Some("Fone (Jabra)")).is_ok());
         assert!(validate(Setting::AudioOutput, Some("")).is_err());
+        assert!(validate(Setting::AudioInput, Some("Microfone (fifine Microphone)")).is_ok());
+        assert!(validate(Setting::AudioInput, None).is_err());
     }
 
     #[test]
@@ -805,6 +826,7 @@ mod tests {
         assert_eq!(describe(Setting::Bluetooth, Switch::Toggle, None), "Bluetooth: alternar");
         assert_eq!(describe(Setting::Wifi, Switch::On, None), "Wi-Fi: ligar");
         assert_eq!(describe(Setting::AudioOutput, Switch::Toggle, Some("Fone")), "saída de áudio: Fone");
+        assert_eq!(describe(Setting::AudioInput, Switch::Toggle, Some("Headset")), "entrada de áudio: Headset");
         assert_eq!(describe(Setting::Projection, Switch::Toggle, Some("extend")), "projeção: estender");
         assert_eq!(describe(Setting::Sleep, Switch::Toggle, None), "suspender");
     }

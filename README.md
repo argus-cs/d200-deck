@@ -71,7 +71,7 @@ As coleções do Iconify são baixadas só quando você as abre, e o ícone esco
 A tecla mostra o estado de verdade do Windows, e muda mesmo se você mexer pelo próprio Windows.
 
 - **Ligar e desligar:** Bluetooth, Wi-Fi, microfone e som mudos no sistema todo, tema escuro e manter o PC acordado.
-- **Escolher:** a saída de áudio (fone ou caixa), o modo de projeção (como o Win+P) e o modo de energia.
+- **Escolher:** a saída de áudio (fone ou caixa), a entrada de áudio (o microfone), o modo de projeção (como o Win+P) e o modo de energia.
 - **Fazer uma vez:** suspender, desligar a tela e esvaziar a lixeira.
 
 <picture>
@@ -147,7 +147,7 @@ O que o app faz e os erros que encontra ficam em `%APPDATA%\D200Deck\d200deck.lo
 - Apps UWP (Calculadora, Configurações) aparecem como `ApplicationFrameHost.exe` na janela da frente.
 - Combinações com a tecla Win não podem ser gravadas: digite-as no campo, por exemplo `Win+G`.
 - Uma atualização de firmware pelo Ulanzi Studio pode mudar o protocolo.
-- Trocar a saída de áudio e o modo de energia usa APIs não documentadas do Windows, que uma atualização pode mudar. O modo de energia só tem efeito com o plano Equilibrado.
+- Trocar a saída ou a entrada de áudio e o modo de energia usa APIs não documentadas do Windows, que uma atualização pode mudar. O modo de energia só tem efeito com o plano Equilibrado.
 - Escolher ícones do Iconify precisa de internet na primeira vez de cada coleção. Algumas coleções (licença CC BY) pedem crédito ao autor; a janela mostra a licença de cada uma.
 
 ## Desenvolvimento

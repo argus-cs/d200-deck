@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 use deck_engine::config::{Action, Config, KeyFace, LabelStyle, Screen};
 use deck_engine::rules::Simulation;
 use deck_engine::runtime::{self, Command, Engine, Status};
+use deck_engine::system::Setting;
 use deck_engine::{context, iconify, icons};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -261,10 +262,10 @@ async fn iconify_save(id: String) -> CmdResult<String> {
     blocking(move || iconify::save(&config_dir(), &id)).await
 }
 
-/// The active audio outputs' names, for the "audio output" setting.
+/// The names of the active audio outputs or inputs, for the setting that picks one.
 #[tauri::command]
-async fn audio_outputs() -> CmdResult<Vec<String>> {
-    blocking(deck_engine::system::audio_outputs).await
+async fn audio_devices(setting: Setting) -> CmdResult<Vec<String>> {
+    blocking(move || deck_engine::system::audio_devices(setting)).await
 }
 
 #[derive(Serialize)]
@@ -391,7 +392,7 @@ fn main() {
             render_screen,
             glyphs,
             running_apps,
-            audio_outputs,
+            audio_devices,
             iconify_sets,
             iconify_icons,
             iconify_search,

@@ -141,6 +141,7 @@ export type Setting =
   | 'dark_theme'
   | 'keep_awake'
   | 'audio_output'
+  | 'audio_input'
   | 'projection'
   | 'power_mode'
   | 'sleep'
@@ -308,6 +309,9 @@ export interface SettingInfo {
   /** On/off settings: the second face suggested for "off". */
   off?: { icon: string; label: string };
   choices?: SettingChoice[];
+  /** Choices that are audio devices, by their name in Windows: the field's
+   * name, the button that lists the ones on now, and what shows when there is none. */
+  device?: { label: string; list: string; none: string };
 }
 
 export const SETTINGS: SettingInfo[] = [
@@ -371,6 +375,16 @@ export const SETTINGS: SettingInfo[] = [
     hint: 'Passa a tocar o som por esta saída.',
     icon: 'headphones',
     short: 'Saída',
+    device: { label: 'Saída', list: 'Saídas ligadas agora', none: 'Nenhuma saída de áudio ligada.' },
+  },
+  {
+    value: 'audio_input',
+    label: 'Entrada de áudio (microfone)',
+    kind: 'choice',
+    hint: 'Passa a usar este microfone em todos os apps, inclusive nas chamadas.',
+    icon: 'mic',
+    short: 'Entrada',
+    device: { label: 'Entrada', list: 'Entradas ligadas agora', none: 'Nenhuma entrada de áudio ligada.' },
   },
   {
     value: 'projection',
@@ -427,7 +441,7 @@ export const shortDevice = (name: string) => name.replace(/\s*\(.*$/, '').trim()
 export function settingLook(action: Extract<Action, { type: 'system' }>): { icon: string; label: string; off?: { icon: string; label: string } } {
   const info = settingInfo(action.setting);
   const choice = info.choices?.find((c) => c.value === action.value);
-  const label = choice?.short ?? (action.setting === 'audio_output' && action.value ? shortDevice(action.value) : info.short);
+  const label = choice?.short ?? (info.device && action.value ? shortDevice(action.value) : info.short);
   return { icon: info.icon, label, off: info.off };
 }
 

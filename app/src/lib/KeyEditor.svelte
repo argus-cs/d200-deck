@@ -124,11 +124,13 @@
     }
   }
 
-  /** Gives a key the look of the Windows setting just picked, keeping what the person chose themselves. */
-  function suggest(action: Extract<Action, { type: 'system' }>) {
+  /** Gives a key the look of the Windows setting just picked, keeping what the person chose themselves.
+   * The label suggested for the previous one goes too: a device's name isn't among the fixed ones. */
+  function suggest(action: Extract<Action, { type: 'system' }>, previous: Extract<Action, { type: 'system' }> | null) {
     const k = keys[id];
     const look = settingLook(action);
-    if (!k.label || SUGGESTED_LABELS.has(k.label)) k.label = look.label;
+    const before = previous && settingLook(previous).label;
+    if (!k.label || SUGGESTED_LABELS.has(k.label) || k.label === before) k.label = look.label;
     if (!k.icon || SUGGESTED_ICONS.has(k.icon)) k.icon = look.icon;
     const suggestedSecond = !k.toggle || (k.toggle.icon && SUGGESTED_OFF.has(k.toggle.icon));
     if (suggestedSecond) {

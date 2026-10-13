@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { audioOutputs, otherApps, pickFile } from './api';
+  import { audioDevices, otherApps, pickFile } from './api';
   import { hotkeyFrom } from './hotkey';
   import {
     ACTION_TYPES,
@@ -29,8 +29,9 @@
     noneLabel?: string;
     /** Open Edge pages, offered as quick targets. */
     edgePages?: EdgePage[];
-    /** A Windows setting or its choice was picked, so the key can take a matching look. */
-    onpick?: (action: Extract<Action, { type: 'system' }>) => void;
+    /** A Windows setting or its choice was picked, so the key can take a matching look;
+     * `previous` is the setting it replaced, whose suggested look may go too. */
+    onpick?: (action: Extract<Action, { type: 'system' }>, previous: Extract<Action, { type: 'system' }> | null) => void;
   } = $props();
 
   const GROUPS: { kind: SettingKind; label: string }[] = [
@@ -47,7 +48,7 @@
   let recording = $state(false);
   /** Ends the recording in progress. */
   let stopRecording: (() => void) | null = null;
-  let panel = $state<'none' | 'apps' | 'sites' | 'outputs'>('none');
+  let panel = $state<'none' | 'apps' | 'sites' | 'devices'>('none');
 
   // A recording belongs to the action it started on: picking another key or
   // leaving the editor ends it, or the next key typed anywhere would be taken.
@@ -56,25 +57,34 @@
     return () => stopRecording?.();
   });
   let apps = $state<RunningApp[]>([]);
-  let outputs = $state<string[]>([]);
+  let devices = $state<string[]>([]);
   let pickError = $state<string | null>(null);
 
-  async function togglePanel(next: 'apps' | 'sites' | 'outputs') {
+  async function togglePanel(next: 'apps' | 'sites' | 'devices') {
     panel = panel === next ? 'none' : next;
     pickError = null;
     try {
       if (panel === 'apps') apps = await otherApps();
-      if (panel === 'outputs') outputs = await audioOutputs();
+      if (panel === 'devices' && action?.type === 'system') {
+        // Outputs that arrive after a switch to the input aren't its list.
+        const setting = action.setting;
+        const list = await audioDevices(setting);
+        if (action?.type === 'system' && action.setting === setting) devices = list;
+      }
     } catch (e) {
       pickError = String(e);
     }
   }
 
+  /** The system action as it is now, before a change. */
+  const systemBefore = () => (action?.type === 'system' ? $state.snapshot(action) : null);
+
   function setSetting(setting: Setting) {
+    const previous = systemBefore();
     const next: Extract<Action, { type: 'system' }> = { type: 'system', setting, value: settingInfo(setting).choices?.[0].value ?? null };
     action = next;
     panel = 'none';
-    onpick?.(next);
+    onpick?.(next, previous);
   }
 
   /** Toggle is the default, so it is left out of config.json. */
@@ -84,9 +94,10 @@
 
   function setValue(value: string) {
     if (action?.type !== 'system') return;
+    const previous = systemBefore();
     action.value = value;
     panel = 'none';
-    onpick?.(action);
+    onpick?.(action, previous);
   }
 
   /** Store apps open by name (through their alias); started from their own
@@ -120,7 +131,7 @@
 
   function setType(type: string) {
     action = type ? newAction(type as Action['type']) : null;
-    if (action?.type === 'system') onpick?.(action);
+    if (action?.type === 'system') onpick?.(action, null);
   }
 
   function record() {
@@ -259,10 +270,10 @@
       <select aria-label={info.label} value={action.value ?? ''} onchange={(e) => setValue(e.currentTarget.value)}>
         {#each info.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
       </select>
-    {:else if action.setting === 'audio_output'}
-      <label class="name" for={`${id}-output`}>Saída</label>
+    {:else if info.device}
+      <label class="name" for={`${id}-device`}>{info.device.label}</label>
       <input
-        id={`${id}-output`}
+        id={`${id}-device`}
         type="text"
         value={action.value ?? ''}
         oninput={(e) => {
@@ -271,16 +282,16 @@
         placeholder="Nome como aparece no Windows"
       />
       <div class="quick">
-        <button type="button" class="secondary small-btn" aria-expanded={panel === 'outputs'} onclick={() => togglePanel('outputs')}>
-          Saídas ligadas agora
+        <button type="button" class="secondary small-btn" aria-expanded={panel === 'devices'} onclick={() => togglePanel('devices')}>
+          {info.device.list}
         </button>
       </div>
-      {#if panel === 'outputs'}
+      {#if panel === 'devices'}
         <ul class="choices scroll">
-          {#each outputs as output (output)}
-            <li><button type="button" class="choice" onclick={() => setValue(output)}><span class="ellipsis">{output}</span></button></li>
+          {#each devices as device (device)}
+            <li><button type="button" class="choice" onclick={() => setValue(device)}><span class="ellipsis">{device}</span></button></li>
           {/each}
-          {#if outputs.length === 0}<li class="muted small">Nenhuma saída de áudio ligada.</li>{/if}
+          {#if devices.length === 0}<li class="muted small">{info.device.none}</li>{/if}
         </ul>
       {/if}
       {#if pickError}<span class="error-text small">{pickError}</span>{/if}

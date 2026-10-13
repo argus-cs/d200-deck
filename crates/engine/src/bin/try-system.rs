@@ -1,14 +1,14 @@
 //! Reads or changes the Windows settings of "system" actions, outside the device loop.
 //! Usage: cargo run -p deck-engine --bin try-system -- state
-//!        cargo run -p deck-engine --bin try-system -- outputs
+//!        cargo run -p deck-engine --bin try-system -- outputs | inputs
 //!        cargo run -p deck-engine --bin try-system -- set <setting> [toggle|on|off] [value]
 
 use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
-use deck_engine::system::{apply, audio_outputs, describe, state, validate, Kind, Setting, Switch};
+use deck_engine::system::{apply, audio_devices, describe, state, validate, Kind, Setting, Switch};
 
-const USAGE: &str = "uso: try-system state | outputs | set <ajuste> [toggle|on|off] [valor]";
+const USAGE: &str = "uso: try-system state | outputs | inputs | set <ajuste> [toggle|on|off] [valor]";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -22,21 +22,25 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Some("outputs") => {
-            for name in audio_outputs()? {
-                println!("{name}");
-            }
-            Ok(())
-        }
+        Some("outputs") => print_devices(Setting::AudioOutput),
+        Some("inputs") => print_devices(Setting::AudioInput),
         Some("set") => set(&args[1..]),
         _ => bail!(USAGE),
     }
 }
 
+fn print_devices(setting: Setting) -> Result<()> {
+    for name in audio_devices(setting)? {
+        println!("{name}");
+    }
+    Ok(())
+}
+
 fn print_states(show: bool) -> Result<()> {
     for setting in Setting::ALL {
         let values: Vec<String> = match setting.kind() {
-            Kind::Choice if setting == Setting::AudioOutput => audio_outputs()?,
+            // Any device name: the ones on now.
+            Kind::Choice if setting.choices().is_empty() => audio_devices(setting)?,
             Kind::Choice => setting.choices().iter().map(|v| v.to_string()).collect(),
             _ => vec![String::new()],
         };

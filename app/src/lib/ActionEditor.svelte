@@ -29,8 +29,9 @@
     noneLabel?: string;
     /** Open Edge pages, offered as quick targets. */
     edgePages?: EdgePage[];
-    /** A Windows setting or its choice was picked, so the key can take a matching look. */
-    onpick?: (action: Extract<Action, { type: 'system' }>) => void;
+    /** A Windows setting or its choice was picked, so the key can take a matching look;
+     * `previous` is the setting it replaced, whose suggested look may go too. */
+    onpick?: (action: Extract<Action, { type: 'system' }>, previous: Extract<Action, { type: 'system' }> | null) => void;
   } = $props();
 
   const GROUPS: { kind: SettingKind; label: string }[] = [
@@ -75,11 +76,15 @@
     }
   }
 
+  /** The system action as it is now, before a change. */
+  const systemBefore = () => (action?.type === 'system' ? $state.snapshot(action) : null);
+
   function setSetting(setting: Setting) {
+    const previous = systemBefore();
     const next: Extract<Action, { type: 'system' }> = { type: 'system', setting, value: settingInfo(setting).choices?.[0].value ?? null };
     action = next;
     panel = 'none';
-    onpick?.(next);
+    onpick?.(next, previous);
   }
 
   /** Toggle is the default, so it is left out of config.json. */
@@ -89,9 +94,10 @@
 
   function setValue(value: string) {
     if (action?.type !== 'system') return;
+    const previous = systemBefore();
     action.value = value;
     panel = 'none';
-    onpick?.(action);
+    onpick?.(action, previous);
   }
 
   /** Store apps open by name (through their alias); started from their own
@@ -125,7 +131,7 @@
 
   function setType(type: string) {
     action = type ? newAction(type as Action['type']) : null;
-    if (action?.type === 'system') onpick?.(action);
+    if (action?.type === 'system') onpick?.(action, null);
   }
 
   function record() {

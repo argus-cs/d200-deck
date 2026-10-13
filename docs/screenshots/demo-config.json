@@ -1,0 +1,131 @@
+{
+  "brightness": 80,
+  "window": "clock",
+  "label": { "show": true, "size": 10, "color": "FFFFFF", "align": "bottom" },
+  "screen": {
+    "content": { "type": "clock_stats", "hour24": true, "seconds": false },
+    "hold": {
+      "type": "cycle",
+      "contents": [
+        { "type": "stats", "cpu": true, "memory": true, "gpu": true, "network": true },
+        { "type": "timer", "minutes": 25 }
+      ]
+    }
+  },
+  "keys": {
+    "1": {
+      "label": "Microfone",
+      "icon": "mic",
+      "action": { "type": "system", "setting": "microphone" },
+      "toggle": { "label": "Mutado", "icon": "micOff", "color": "#3A1616", "icon_color": "#FFC2B8", "text_color": "#FFC2B8", "border": "#E5533D" }
+    },
+    "2": { "label": "Play/Pause", "icon": "play", "action": { "type": "media", "key": "play_pause" } },
+    "3": { "label": "Próxima", "icon": "next", "action": { "type": "media", "key": "next" } },
+    "4": {
+      "label": "Volume",
+      "icon": "volume",
+      "icon_color": "#F0A63A",
+      "folder": {
+        "stay": true,
+        "keys": {
+          "2": { "label": "Volume −", "icon": "volumeDown", "action": { "type": "media", "key": "volume_down" } },
+          "3": { "label": "Volume +", "icon": "volume", "action": { "type": "media", "key": "volume_up" } },
+          "4": { "label": "Mudo", "icon": "volumeOff", "action": { "type": "media", "key": "mute" } },
+          "7": { "label": "Anterior", "icon": "previous", "action": { "type": "media", "key": "previous" } },
+          "8": { "label": "Play/Pause", "icon": "play", "action": { "type": "media", "key": "play_pause" } },
+          "9": { "label": "Próxima", "icon": "next", "action": { "type": "media", "key": "next" } }
+        }
+      }
+    },
+    "5": { "label": "Captura", "icon": "capture", "action": { "type": "hotkey", "keys": "Win+Shift+S" } },
+    "6": { "label": "Terminal", "icon": "terminal", "color": "#12303A", "icon_color": "#BFF0D4", "action": { "type": "open", "target": "wt.exe" } },
+    "7": { "label": "Edge", "icon": "icons/logos-microsoft-edge.svg", "action": { "type": "open", "target": "msedge.exe" } },
+    "8": { "label": "Spotify", "icon": "icons/logos-spotify-icon.svg", "action": { "type": "open", "target": "spotify:" } },
+    "9": {
+      "label": "Bluetooth",
+      "icon": "bluetooth",
+      "icon_color": "#8AB4F8",
+      "action": { "type": "system", "setting": "bluetooth" },
+      "toggle": { "label": "Desligado", "icon": "bluetoothOff" }
+    },
+    "10": {
+      "label": "Tema escuro",
+      "icon": "moon",
+      "action": { "type": "system", "setting": "dark_theme" },
+      "toggle": { "label": "Tema claro", "icon": "sun", "icon_color": "#F0A63A" }
+    },
+    "11": { "label": "Acordado", "icon": "coffee", "icon_color": "#F0A63A", "action": { "type": "system", "setting": "keep_awake" } },
+    "12": { "label": "Bloquear", "icon": "lock", "action": { "type": "command", "command": "rundll32.exe user32.dll,LockWorkStation" } },
+    "13": { "label": "Discord", "icon": "icons/logos-discord-icon.svg", "action": { "type": "open", "target": "Discord.exe" } }
+  },
+  "rules": [
+    {
+      "name": "Teams",
+      "when": { "process": "ms-teams.exe" },
+      "mode": "focus",
+      "keys": {
+        "1": {
+          "label": "Câmera",
+          "icon": "camera",
+          "action": { "type": "hotkey", "keys": "Ctrl+Shift+O" },
+          "front": true,
+          "toggle": { "label": "Câmera off", "icon": "cameraOff", "color": "#3A1616", "icon_color": "#FFC2B8", "text_color": "#FFC2B8", "border": "#E5533D" }
+        },
+        "2": {
+          "label": "Microfone",
+          "icon": "mic",
+          "action": { "type": "hotkey", "keys": "Ctrl+Shift+M" },
+          "front": true,
+          "toggle": { "label": "Mutado", "icon": "micOff", "color": "#3A1616", "icon_color": "#FFC2B8", "text_color": "#FFC2B8", "border": "#E5533D" }
+        },
+        "3": { "label": "Levantar mão", "icon": "hand", "icon_color": "#F0A63A", "action": { "type": "hotkey", "keys": "Ctrl+Shift+K" }, "front": true },
+        "4": { "label": "Compartilhar", "icon": "screenShare", "icon_color": "#8AB4F8", "action": { "type": "hotkey", "keys": "Ctrl+Shift+E" }, "front": true },
+        "5": { "label": "Sair", "icon": "hangUp", "color": "#7A1F1F", "icon_color": "#FFFFFF", "action": { "type": "hotkey", "keys": "Ctrl+Shift+H" }, "front": true }
+      },
+      "screen": { "content": { "type": "timer", "minutes": 0 }, "accent": "#7B83EB" }
+    },
+    {
+      "name": "Discord",
+      "when": { "process": "Discord.exe" },
+      "mode": "focus",
+      "keys": {
+        "1": {
+          "label": "Mutar",
+          "icon": "mic",
+          "action": { "type": "hotkey", "keys": "Ctrl+Shift+M" },
+          "front": true,
+          "toggle": { "label": "Mutado", "icon": "micOff", "color": "#3A1616", "icon_color": "#FFC2B8", "text_color": "#FFC2B8", "border": "#E5533D" }
+        },
+        "2": {
+          "label": "Ensurdecer",
+          "icon": "headphones",
+          "action": { "type": "hotkey", "keys": "Ctrl+Shift+D" },
+          "front": true,
+          "toggle": { "label": "Surdo", "icon": "headOff", "color": "#3A1616", "icon_color": "#FFC2B8", "text_color": "#FFC2B8", "border": "#E5533D" }
+        }
+      },
+      "screen": { "content": { "type": "text", "text": "Em call\nnão perturbe" }, "background": "#1C1F3B", "accent": "#5865F2" }
+    },
+    {
+      "name": "YouTube",
+      "when": { "site": "youtube.com" },
+      "mode": "focus",
+      "keys": {
+        "2": { "label": "Play/Pause", "icon": "play", "color": "#2A1616", "icon_color": "#FF6B6B", "action": { "type": "hotkey", "keys": "K" }, "front": true },
+        "3": { "label": "+10 s", "icon": "forward", "color": "#2A1616", "icon_color": "#FF6B6B", "action": { "type": "hotkey", "keys": "L" }, "front": true },
+        "4": { "label": "Legendas", "icon": "captions", "color": "#2A1616", "icon_color": "#FF6B6B", "action": { "type": "hotkey", "keys": "C" }, "front": true },
+        "5": { "label": "Tela cheia", "icon": "fullscreen", "color": "#2A1616", "icon_color": "#FF6B6B", "action": { "type": "hotkey", "keys": "F" }, "front": true }
+      }
+    },
+    {
+      "name": "VS Code",
+      "when": { "process": "Code.exe" },
+      "mode": "open",
+      "keys": {
+        "11": { "label": "Git", "icon": "branch", "color": "#132238", "icon_color": "#7CC4FF", "action": { "type": "hotkey", "keys": "Ctrl+Shift+G" }, "front": true },
+        "12": { "label": "Painel", "icon": "terminal", "color": "#132238", "icon_color": "#7CC4FF", "action": { "type": "hotkey", "keys": "Ctrl+J" }, "front": true },
+        "13": { "label": "Buscar", "icon": "search", "color": "#132238", "icon_color": "#7CC4FF", "action": { "type": "hotkey", "keys": "Ctrl+Shift+F" }, "front": true }
+      }
+    }
+  ]
+}

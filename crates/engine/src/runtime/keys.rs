@@ -90,10 +90,12 @@ impl State {
         layers.flat_map(|key| std::iter::once(key).chain(key.folder.iter().flat_map(|f| f.keys.values()))).chain(open.into_iter().flatten())
     }
 
-    /// What each key does now: the open folder's keys, or the rule layers'.
+    /// What each key does now: the open folder's keys, the default layout a
+    /// hold on the visor put up, or the rule layers'.
     pub(super) fn layout(&self) -> BTreeMap<u8, Slot> {
         match self.open_folder() {
             Some((folder, rule, number)) => resolve_folder(folder, rule, number),
+            None if self.default_keys.is_some() => resolve(&self.config, &[]),
             None => resolve(&self.config, &self.active),
         }
     }
@@ -174,6 +176,9 @@ impl State {
         if let Some(open) = &mut self.folder {
             open.touched = Instant::now();
         }
+        if let Some(touched) = &mut self.default_keys {
+            *touched = Instant::now();
+        }
         let action = current.and_then(|f| f.action.cloned());
         let Some(slot) = slot else {
             info!("tecla {number}: vazia");
@@ -235,6 +240,11 @@ impl State {
         if ran && in_folder && !self.open_folder().is_some_and(|(folder, ..)| folder.stay) {
             info!("pasta fechada");
             self.folder = None;
+            changed = true;
+        }
+        // The default layout was up for one key: back to the rules.
+        if ran && self.default_keys.take().is_some() {
+            info!("de volta às regras");
             changed = true;
         }
         if changed {

@@ -49,6 +49,8 @@ export interface Status {
   screen: ScreenStatus;
   /** The label of the folder showing in place of the layout. */
   folder: string | null;
+  /** Holding the visor put the default layout up until a key is used. */
+  default_keys: boolean;
 }
 
 export interface ScreenStatus {
@@ -77,9 +79,13 @@ export interface Screen {
   hold?: ScreenHold | null;
 }
 
-/** What holding the visor does: an action, or show the next of `contents`
- * (after the last one, back to the visor's own content). */
-export type ScreenHold = { type: 'action'; action?: Action | null } | { type: 'cycle'; contents: ScreenContent[] };
+/** What holding the visor does: an action, show the next of `contents`
+ * (after the last one, back to the visor's own content), or put the default
+ * layout on the keys until one is used. */
+export type ScreenHold =
+  | { type: 'action'; action?: Action | null }
+  | { type: 'cycle'; contents: ScreenContent[] }
+  | { type: 'default_keys' };
 
 export const SCREEN_TYPES: { type: ScreenContent['type']; label: string; hint: string }[] = [
   { type: 'clock', label: 'Relógio', hint: 'Desenhado pelo app, nas suas cores' },

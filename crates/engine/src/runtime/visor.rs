@@ -125,7 +125,8 @@ impl State {
         Ok(())
     }
 
-    /// Holding the visor: its own action, or the next content of its cycle.
+    /// Holding the visor: its own action, the next content of its cycle, or
+    /// the default layout up (or gone again).
     pub(super) fn hold_screen(&mut self, device: &D200) -> Result<()> {
         let (screen, rule) = self.current_screen();
         match screen.hold {
@@ -140,6 +141,20 @@ impl State {
             }
             Some(ScreenHold::Action { action: Some(action) }) => {
                 self.report_screen("Visor (segurar)".to_string(), rule, Some(action));
+            }
+            Some(ScreenHold::DefaultKeys) => {
+                // An open folder would stay in front of the keys either way.
+                self.folder = None;
+                let label = if self.default_keys.take().is_some() {
+                    info!("visor: de volta às regras");
+                    "Visor: de volta às regras"
+                } else {
+                    info!("visor: layout padrão até uma tecla ser usada");
+                    self.default_keys = Some(Instant::now());
+                    "Visor: layout padrão"
+                };
+                self.sync_keys(Some(device))?;
+                self.report_screen(label.to_string(), rule, None);
             }
             _ => {}
         }

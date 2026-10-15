@@ -65,6 +65,8 @@ const SETTING_FAST_POLL: Duration = Duration::from_millis(200);
 const SETTING_FAST_FOR: Duration = Duration::from_secs(3);
 /// A folder nobody touches goes back to the layout after this long.
 const FOLDER_TIMEOUT: Duration = Duration::from_secs(30);
+/// Likewise, the default layout a hold on the visor showed goes back to the rules.
+const DEFAULT_KEYS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Rendered key images by `Look::cache_key`.
 type IconCache = HashMap<String, Option<Vec<u8>>>;
@@ -152,6 +154,9 @@ struct State {
     sent: BTreeMap<usize, KeyView>,
     live: Live,
     folder: Option<OpenFolder>,
+    /// Holding the visor put the default layout up, rules left out, until a
+    /// key runs an action: the last touch since then.
+    default_keys: Option<Instant>,
     icons: IconCache,
     /// Started the first time a visor shows the PC's use.
     usage_rx: Option<Receiver<Usage>>,
@@ -225,6 +230,7 @@ impl State {
             sent: BTreeMap::new(),
             live: Live::default(),
             folder: None,
+            default_keys: None,
             icons: HashMap::new(),
             usage_rx: None,
             usage: Usage::default(),
@@ -381,6 +387,11 @@ impl State {
             self.folder = None;
             self.sync_keys(device)?;
         }
+        if self.default_keys.is_some_and(|touched| touched.elapsed() >= DEFAULT_KEYS_TIMEOUT) {
+            info!("de volta às regras: ninguém tocou no layout padrão");
+            self.default_keys = None;
+            self.sync_keys(device)?;
+        }
         self.drain_events();
         let extension = self.browser.is_connected();
         if extension != self.extension {
@@ -399,8 +410,10 @@ impl State {
         self.drain_events();
         self.poll_processes();
         self.active = self.compute_active();
-        // Plugged in again: back to the layout, not to a folder from before.
+        // Plugged in again: back to the rules, not to a folder or a held-up
+        // default layout from before.
         self.folder = None;
+        self.default_keys = None;
         // Nor to a finger on the visor when the cable went: its hold would run
         // at once, with nobody touching it.
         self.visor_press = VisorPress::Up;

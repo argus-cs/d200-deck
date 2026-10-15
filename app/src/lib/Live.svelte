@@ -62,6 +62,9 @@
     <div class="chips">
       <span class="chip"><span class="muted">Em foco</span><span class="mono">{focusedText}</span></span>
       <span class="chip"><span class="muted">Abertos</span><span class="mono">{status.open.join(', ') || 'nenhum com regra'}</span></span>
+      {#if status.default_keys}
+        <span class="chip folder"><span class="muted">Layout padrão</span><span>até usar uma tecla</span></span>
+      {/if}
       {#if status.folder}
         <span class="chip folder"><span class="muted">Pasta aberta</span><span>{status.folder}</span></span>
       {/if}

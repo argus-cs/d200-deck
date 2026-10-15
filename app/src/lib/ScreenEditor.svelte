@@ -38,6 +38,7 @@
     { value: 'none', label: 'Nada', hint: 'Segurar conta como um toque' },
     { value: 'action', label: 'Executar uma ação', hint: 'Diferente da ação do toque' },
     { value: 'cycle', label: 'Alternar o que o visor mostra', hint: 'Cada vez que segurar, passa para o próximo da sequência' },
+    { value: 'default_keys', label: 'Mostrar o layout padrão', hint: 'As teclas ficam no padrão até você usar uma delas e depois voltam para a regra' },
   ];
 
   /** The hold sequence's entry being edited and previewed; null: the visor's own content. */
@@ -73,7 +74,13 @@
   function setHold(kind: HoldKind) {
     if (!screen) return;
     editing = null;
-    screen.hold = kind === 'action' ? { type: 'action', action: null } : kind === 'cycle' ? { type: 'cycle', contents: [] } : null;
+    const holds: Record<HoldKind, ScreenHold | null> = {
+      none: null,
+      action: { type: 'action', action: null },
+      cycle: { type: 'cycle', contents: [] },
+      default_keys: { type: 'default_keys' },
+    };
+    screen.hold = holds[kind];
   }
 
   function addToCycle(type: string) {
@@ -291,6 +298,11 @@
         {:else}
           Depois do último, segurar volta ao principal. Toque num item para ver a prévia e as opções.
         {/if}
+      </span>
+    {:else if screen.hold?.type === 'default_keys'}
+      <span class="muted small">
+        Para voltar à regra sem usar nenhuma tecla, segure de novo ou espere 30 s.
+        {#if !inRule}Vale nas regras que usam este visor; uma regra com visor próprio escolhe no dela.{/if}
       </span>
     {/if}
   </div>

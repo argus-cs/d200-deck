@@ -90,7 +90,7 @@ Uma tecla abre um grupo de até 12 teclas no lugar do layout. Usar uma delas vol
 
 ### Visor
 
-O visor largo (a tecla 14) mostra relógio, uso do PC (CPU, memória, GPU e rede), a música tocando agora com a capa, cronômetro ou Pomodoro, texto ou imagem. Cada regra pode ter o seu. Tocar executa uma ação, e segurar executa outra ou alterna o que o visor mostra.
+O visor largo (a tecla 14) mostra relógio, uso do PC (CPU, memória, GPU e rede), a música tocando agora com a capa, cronômetro ou Pomodoro, texto ou imagem. Cada regra pode ter o seu. Tocar executa uma ação, e segurar executa outra, alterna o que o visor mostra ou traz o layout padrão de volta às teclas até você usar uma delas (com o Spotify na frente, segure o visor, use uma tecla do padrão e as teclas do Spotify voltam).
 
 <table>
   <tr>

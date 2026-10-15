@@ -35,6 +35,8 @@ pub struct Status {
     pub screen: ScreenStatus,
     /// The label of the folder showing in place of the layout.
     pub folder: Option<String>,
+    /// Holding the visor put the default layout up until a key is used.
+    pub default_keys: bool,
 }
 
 /// The visor as it is now.
@@ -169,8 +171,9 @@ impl State {
         let keys = (1..=KEY_COUNT as u8)
             .map(|number| {
                 let slot = self.resolved.get(&number);
-                // An open folder is no layer: no rule fights over its keys.
-                let contenders: Vec<usize> = if in_folder {
+                // An open folder is no layer, and the default layout held up
+                // leaves the rules out: no rule fights over their keys.
+                let contenders: Vec<usize> = if in_folder || self.default_keys.is_some() {
                     Vec::new()
                 } else {
                     self.active.iter().copied().filter(|&i| self.config.rules[i].keys.contains_key(&number)).collect()
@@ -238,6 +241,7 @@ impl State {
             keys,
             screen,
             folder: self.open_folder_key().map(|(key, _)| if key.label.is_empty() { "Pasta".to_string() } else { key.label.clone() }),
+            default_keys: self.default_keys.is_some(),
         }
     }
 }

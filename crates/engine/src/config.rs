@@ -60,6 +60,9 @@ pub enum ScreenHold {
         #[serde(default)]
         contents: Vec<ScreenContent>,
     },
+    /// The keys show the default layout, rules left out, until one of them
+    /// runs an action, the visor is held again or nothing is touched for a while.
+    DefaultKeys,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -149,6 +152,7 @@ impl Screen {
         match &self.hold {
             Some(ScreenHold::Action { action }) => action.is_some(),
             Some(ScreenHold::Cycle { contents }) => !contents.is_empty(),
+            Some(ScreenHold::DefaultKeys) => true,
             None => false,
         }
     }
@@ -845,6 +849,19 @@ mod tests {
         let action = r#"{ "screen": { "content": { "type": "clock" },
             "hold": { "type": "action", "action": { "type": "hotkey", "keys": "Ctrl+Nada" } } } }"#;
         assert!(serde_json::from_str::<Config>(action).unwrap().validate().is_err(), "a hold action is validated too");
+    }
+
+    #[test]
+    fn holding_the_visor_can_show_the_default_keys() {
+        let json = r#"{ "screen": { "content": { "type": "clock" }, "hold": { "type": "default_keys" } } }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let screen = config.default_screen();
+        assert_eq!(screen.hold, Some(ScreenHold::DefaultKeys));
+        assert!(screen.holds(), "a long press is no tap");
+        assert_eq!(screen.showing(1).name(), "Relógio", "the visor itself stays");
+        let saved = serde_json::to_value(&screen).unwrap();
+        assert_eq!(saved["hold"], serde_json::json!({ "type": "default_keys" }));
     }
 
     #[test]

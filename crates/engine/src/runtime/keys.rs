@@ -136,7 +136,7 @@ impl State {
         let base = self.config_base();
         let mut views = build_views(&self.resolved, &base, &mut self.icons, &self.config, &self.live);
         // The visor is not a key: it shows the app's drawing, or nothing when the device draws.
-        views.insert(WINDOW_INDEX, KeyView { text: String::new(), png: self.screen_png.clone() });
+        views.insert(WINDOW_INDEX, KeyView { text: String::new(), image: self.screen_png.clone() });
         let changed = changed_keys(&self.sent, &views);
         if self.sent.is_empty() {
             let size = device.set_layout(&views, false)?;
@@ -285,7 +285,7 @@ fn build_views(
                     let current = face(&slot.key, live.toggled(config, slot, number as u8));
                     // The label is drawn in the image, so each key can have its own colors.
                     let look = icons::Look::new(&current.appearance, &config.label, &default_text, live.dim(&slot.key, &current));
-                    KeyView { text: String::new(), png: cached_icon(cache, &look, base, number) }
+                    KeyView { text: String::new(), image: cached_icon(cache, &look, base, number) }
                 }
             };
             (index, view)
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn only_changed_keys_are_resent() {
-        let view = |t: &str| KeyView { text: t.into(), png: None };
+        let view = |t: &str| KeyView { text: t.into(), image: None };
         let old = BTreeMap::from([(0, view("a")), (1, view("b")), (2, view("c"))]);
         let new = BTreeMap::from([(0, view("a")), (1, view("B")), (2, view("c"))]);
         assert_eq!(changed_keys(&old, &new), BTreeMap::from([(1, view("B"))]));
@@ -334,7 +334,7 @@ mod tests {
         let on = build_views(&resolved, Path::new("."), &mut cache, &config, &live);
         // Labels are drawn into the images, so the second face is a different image.
         assert_eq!(on[&0].text, "");
-        assert_ne!(on[&0].png, off[&0].png);
+        assert_ne!(on[&0].image, off[&0].image);
         // The second face has no action of its own: it repeats the key's.
         assert_eq!(face(&resolved[&1].key, true).action, resolved[&1].key.action.as_ref());
     }
@@ -345,7 +345,7 @@ mod tests {
         let mut cache = IconCache::new();
         let views = build_views(&resolve(&config, &[]), Path::new("."), &mut cache, &config, &Live::default());
         assert_eq!(views.len(), KEY_COUNT);
-        assert!(views[&0].png.is_some());
+        assert!(views[&0].image.is_some());
         assert_eq!(views[&12], KeyView::default());
         // Keys sharing an icon and color share one rendering.
         assert!(cache.len() <= config.keys.len());

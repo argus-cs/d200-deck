@@ -87,7 +87,7 @@ impl State {
         if self.sent.is_empty() {
             return self.sync_keys(Some(device));
         }
-        let view = KeyView { text: String::new(), png: self.screen_png.clone() };
+        let view = KeyView { text: String::new(), image: self.screen_png.clone() };
         if self.sent.get(&WINDOW_INDEX) == Some(&view) {
             return Ok(());
         }

@@ -174,6 +174,7 @@ O `tauri build` assina o instalador para as atualizações e precisa da chave pr
 cargo test -p d200 -p deck-engine
 cd app && npm run check                                  # tipos da interface
 cargo run -p d200 --bin probe -- list                    # o aparelho é encontrado?
+cargo run -p d200 --bin probe -- gif                     # manda um GIF animado a uma tecla e ao visor
 cargo run -p deck-engine --bin try-screen -- <pasta>     # desenha exemplos de visor e teclas em PNG
 cargo run -p deck-engine --bin try-open -- <alvo>        # testa a ação "abrir" isolada
 cargo run -p deck-engine --bin try-system -- state       # lê os ajustes do Windows (set <ajuste> muda de verdade)

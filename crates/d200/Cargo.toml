@@ -9,7 +9,7 @@ license.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 hidapi.workspace = true
-image = { workspace = true, features = ["png"] }
+image = { workspace = true, features = ["png", "gif"] }
 serde_json.workspace = true
 # The major the updater uses (one zip built), deflating with flate2's default
 # backend as before; zopfli (levels above 9) is left out.

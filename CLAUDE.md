@@ -95,6 +95,7 @@ O Rust fica em `%USERPROFILE%\.cargo\bin`, que pode não estar no PATH do shell.
 cargo test -p d200
 cargo run -p d200 --bin probe -- list
 cargo run -p d200 --bin probe -- test
+cargo run -p d200 --bin probe -- gif            # GIF animado numa tecla e no visor
 cargo run -p deck-engine --bin deckd
 cd app && npm install && npx tauri dev          # app com recarga do frontend
 cd app && npx tauri build --debug --no-bundle   # target/debug/d200-deck.exe
@@ -107,7 +108,7 @@ Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 - Interface: usage page `0x000C` (consumer control, `MI_00` no Windows).
 - Pacotes de 1024 bytes: `7C 7C` + comando (u16 big-endian) + tamanho total (u32 little-endian) + 1016 bytes; payloads maiores seguem em pacotes crus de 1024.
 - No Windows, cada write leva o byte de report ID `00` na frente (1025 bytes).
-- Layout: zip com `dummy.txt`, `Images/*.png` (196×196), `manifest.json` (chaves `"col_row"`) e `sentinel.txt`. Nenhum pacote de continuação pode começar com `0x00` ou `0x7C`. O driver usa o crate `zip` 4, a mesma major do `tauri-plugin-updater` (compila um só), com a feature `deflate-flate2` (o deflate de antes; a `deflate` da 4 traz o `zopfli`). Trocar a versão do `zip` muda os bytes do arquivo: conferir no aparelho com `probe test` e `probe partial <n>` (validado com a 4.6.1 em 2026-10-11, firmware 5.3.3).
+- Layout: zip com `dummy.txt`, `Images/*.png` (196×196) ou `.gif` (a extensão segue a assinatura dos bytes, `GIF8`), `manifest.json` (chaves `"col_row"`) e `sentinel.txt`. Nenhum pacote de continuação pode começar com `0x00` ou `0x7C`. O driver usa o crate `zip` 4, a mesma major do `tauri-plugin-updater` (compila um só), com a feature `deflate-flate2` (o deflate de antes; a `deflate` da 4 traz o `zopfli`). Trocar a versão do `zip` muda os bytes do arquivo: conferir no aparelho com `probe test` e `probe partial <n>` (validado com a 4.6.1 em 2026-10-11, firmware 5.3.3).
 - 14 posições: 13 teclas + o visor largo (índice 13).
 
 ### Validado no Windows (Fase 0, 2026-10-07)
@@ -121,6 +122,13 @@ Feche o Ulanzi Studio (`UlanziDeck.exe`) antes de falar com o aparelho.
 - Dois processos podem abrir o aparelho ao mesmo tempo no Windows.
 - **O aparelho guarda as imagens em cache pelo nome do arquivo no zip.** Nome repetido (mesmo entre execuções) mostra a imagem antiga ou nada. Por isso os nomes levam um contador que começa no relógio (`device.rs::next_nonce`).
 - O visor estica a imagem que recebe para o painel; a proporção medida é **458×196** (`screen::WIDTH/HEIGHT`). `probe screen-test <w> <h> --window image` manda um padrão de teste.
+
+### GIF (validado em 2026-10-15, firmware 5.3.3)
+- **O aparelho anima GIF sozinho**, nas teclas e no visor (modo `Background`): basta pôr o `.gif` no zip e no `Icon` do manifest (`KeyView.image`). Fluido a 20 quadros/s, sem tráfego depois do envio. O Ulanzi Studio faz o mesmo (`setGifDataIcon` na API de plugins; o `GifReadWriter` corta quadros até o GIF caber no limite).
+- **Sempre repete:** sem a extensão de repetição (`NETSCAPE2.0`), o GIF também fica em loop. Para tocar uma vez, mandar o GIF e, quando ele acabar, a imagem parada.
+- **Limite por imagem:** 192 KB foi aceito; 386 KB e 776 KB foram recusados (a tecla mostra um "?"). Envio a uns 200 KB/s.
+- **Zips grandes de dados que não comprimem** (GIF, ruído) não saem do `build_zip`: cada pacote de continuação tem 2 bytes proibidos em 256, e o enchimento do `dummy.txt` só muda o alinhamento, com o zip inteiro refeito a cada tentativa. 750 KB passou; 1,5 MB falhou depois de 1000 tentativas (7 min). Resolver antes de mandar muitas teclas animadas no mesmo zip.
+- `probe gif [arquivo.gif]` manda um GIF a uma tecla e outro ao visor; `--key`, `--frames`, `--noise` (para achar o limite), `--once`, `--no-screen`, `--seconds` e `--save <arquivo>` (só grava o GIF, sem falar com o aparelho).
 
 Referências: redphx/strmdck (MIT) e glmagalhaes.mail/rs-ulanzi-d-200-linux (GitLab).
 

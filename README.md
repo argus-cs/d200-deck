@@ -72,7 +72,7 @@ A tecla mostra o estado de verdade do Windows, e muda mesmo se você mexer pelo 
 
 - **Ligar e desligar:** Bluetooth, Wi-Fi, microfone e som mudos no sistema todo, tema escuro e manter o PC acordado.
 - **Escolher:** a saída de áudio (fone ou caixa), a entrada de áudio (o microfone), o modo de projeção (como o Win+P) e o modo de energia.
-- **Fazer uma vez:** suspender, desligar a tela e esvaziar a lixeira.
+- **Fazer uma vez:** suspender, desligar o PC, desligar a tela e esvaziar a lixeira.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/windows-dark.png">

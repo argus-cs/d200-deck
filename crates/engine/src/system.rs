@@ -1,6 +1,6 @@
 //! Windows settings a key can switch or run: Bluetooth, Wi-Fi, mute, the
 //! theme, keeping the PC awake, the audio output and input, projection, power
-//! mode, sleep, the monitor and the recycle bin. `state` reads the real setting,
+//! mode, sleep, shutting down, the monitor and the recycle bin. `state` reads the real setting,
 //! so a key shows what Windows has rather than what the last press did.
 
 use anyhow::{bail, Result};
@@ -26,6 +26,7 @@ pub enum Setting {
     PowerMode,
     // Run once.
     Sleep,
+    Shutdown,
     MonitorOff,
     EmptyRecycleBin,
 }
@@ -54,7 +55,7 @@ const PROJECTIONS: &[&str] = &["internal", "clone", "extend", "external"];
 const POWER_MODES: &[&str] = &["efficiency", "balanced", "performance"];
 
 impl Setting {
-    pub const ALL: [Setting; 13] = [
+    pub const ALL: [Setting; 14] = [
         Setting::Bluetooth,
         Setting::Wifi,
         Setting::Microphone,
@@ -66,6 +67,7 @@ impl Setting {
         Setting::Projection,
         Setting::PowerMode,
         Setting::Sleep,
+        Setting::Shutdown,
         Setting::MonitorOff,
         Setting::EmptyRecycleBin,
     ];
@@ -79,7 +81,7 @@ impl Setting {
             | Setting::DarkTheme
             | Setting::KeepAwake => Kind::OnOff,
             Setting::AudioOutput | Setting::AudioInput | Setting::Projection | Setting::PowerMode => Kind::Choice,
-            Setting::Sleep | Setting::MonitorOff | Setting::EmptyRecycleBin => Kind::Once,
+            Setting::Sleep | Setting::Shutdown | Setting::MonitorOff | Setting::EmptyRecycleBin => Kind::Once,
         }
     }
 
@@ -106,6 +108,7 @@ impl Setting {
             Setting::Projection => "projeção",
             Setting::PowerMode => "modo de energia",
             Setting::Sleep => "suspender",
+            Setting::Shutdown => "desligar o PC",
             Setting::MonitorOff => "desligar o monitor",
             Setting::EmptyRecycleBin => "esvaziar a lixeira",
         }
@@ -246,6 +249,10 @@ mod win {
         SetSuspendState,
     };
     use windows::Win32::System::Registry::{RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_DWORD, RRF_RT_REG_DWORD};
+    use windows::Win32::System::Shutdown::{
+        ExitWindowsEx, EWX_POWEROFF, EWX_SHUTDOWN, SHTDN_REASON_FLAG_PLANNED, SHTDN_REASON_MAJOR_OTHER,
+        SHTDN_REASON_MINOR_OTHER,
+    };
     use windows::Win32::System::Threading::{
         GetCurrentProcess, OpenProcessToken, POWER_REQUEST_CONTEXT_SIMPLE_STRING, REASON_CONTEXT, REASON_CONTEXT_0,
     };
@@ -282,6 +289,7 @@ mod win {
             Setting::Projection => set_projection(value),
             Setting::PowerMode => set_power_mode(value),
             Setting::Sleep => sleep(),
+            Setting::Shutdown => shutdown(),
             Setting::MonitorOff => monitor_off(),
             Setting::EmptyRecycleBin => empty_recycle_bin(),
         }
@@ -300,7 +308,7 @@ mod win {
             Setting::AudioInput => is_default_device(eCapture, value?),
             Setting::Projection => Some(current_topology()? == topology(value?)?.1),
             Setting::PowerMode => Some(current_power_mode()? == power_mode(value?)?),
-            Setting::Sleep | Setting::MonitorOff | Setting::EmptyRecycleBin => None,
+            Setting::Sleep | Setting::Shutdown | Setting::MonitorOff | Setting::EmptyRecycleBin => None,
         }
     }
 
@@ -716,7 +724,16 @@ mod win {
         Ok(())
     }
 
-    /// SetSuspendState needs it, and processes start with it disabled.
+    /// Like Start → Shut down, but a full shutdown (no fast startup). Not
+    /// forced: an app with unsaved work makes Windows ask, with a Cancel.
+    fn shutdown() -> Result<()> {
+        enable_shutdown_privilege()?;
+        let reason = SHTDN_REASON_MAJOR_OTHER | SHTDN_REASON_MINOR_OTHER | SHTDN_REASON_FLAG_PLANNED;
+        unsafe { ExitWindowsEx(EWX_SHUTDOWN | EWX_POWEROFF, reason) }
+            .map_err(|e| anyhow!("o Windows não desligou: {}", e.message()))
+    }
+
+    /// SetSuspendState and ExitWindowsEx need it, and processes start with it disabled.
     fn enable_shutdown_privilege() -> Result<()> {
         unsafe {
             let mut token = HANDLE::default();
@@ -774,6 +791,7 @@ mod tests {
             (Setting::AudioOutput, "audio_output"),
             (Setting::AudioInput, "audio_input"),
             (Setting::PowerMode, "power_mode"),
+            (Setting::Shutdown, "shutdown"),
             (Setting::MonitorOff, "monitor_off"),
             (Setting::EmptyRecycleBin, "empty_recycle_bin"),
         ];
@@ -804,6 +822,7 @@ mod tests {
         assert_eq!(Setting::AudioInput.kind(), Kind::Choice);
         assert_eq!(Setting::Microphone.kind(), Kind::OnOff);
         assert_eq!(Setting::Sleep.kind(), Kind::Once);
+        assert_eq!(Setting::Shutdown.kind(), Kind::Once);
     }
 
     #[test]
@@ -829,6 +848,7 @@ mod tests {
         assert_eq!(describe(Setting::AudioInput, Switch::Toggle, Some("Headset")), "entrada de áudio: Headset");
         assert_eq!(describe(Setting::Projection, Switch::Toggle, Some("extend")), "projeção: estender");
         assert_eq!(describe(Setting::Sleep, Switch::Toggle, None), "suspender");
+        assert_eq!(describe(Setting::Shutdown, Switch::Toggle, None), "desligar o PC");
     }
 
     #[test]

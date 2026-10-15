@@ -145,6 +145,7 @@ export type Setting =
   | 'projection'
   | 'power_mode'
   | 'sleep'
+  | 'shutdown'
   | 'monitor_off'
   | 'empty_recycle_bin';
 
@@ -414,6 +415,14 @@ export const SETTINGS: SettingInfo[] = [
     ],
   },
   { value: 'sleep', label: 'Suspender o PC', kind: 'once', hint: 'O PC entra em suspensão na hora.', icon: 'moon', short: 'Suspender' },
+  {
+    value: 'shutdown',
+    label: 'Desligar o PC',
+    kind: 'once',
+    hint: 'Desliga o PC na hora, como o Iniciar › Desligar. Se algum app tiver trabalho não salvo, o Windows pergunta antes. Para evitar um toque sem querer, ponha a tecla numa pasta.',
+    icon: 'power',
+    short: 'Desligar',
+  },
   {
     value: 'monitor_off',
     label: 'Desligar a tela',

@@ -2,6 +2,15 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.3.11 — 2026-10-15
+
+### Novidades
+- Novo ajuste do Windows: "Desligar o PC", em "Fazer uma vez". A tecla desliga o PC como o Iniciar → Desligar: se algum app tiver trabalho não salvo, o Windows pergunta antes. É um desligamento completo, sem a inicialização rápida do Windows. Para não desligar com um toque sem querer, ponha a tecla numa pasta
+- Segurar o visor agora pode trazer o layout padrão de volta às teclas: no editor do visor, em "Ao segurar o visor", escolha "Mostrar o layout padrão". Com uma regra valendo (o Spotify na frente, por exemplo), segure o visor, use uma tecla do padrão e as teclas da regra voltam. Para voltar sem usar nenhuma tecla, segure de novo ou espere 30 segundos. Enquanto isso, a tela Ao vivo mostra "Layout padrão"
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.10 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.10 — 2026-10-13
 
 ### Novidades

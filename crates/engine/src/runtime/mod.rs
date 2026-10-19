@@ -1,8 +1,8 @@
 //! The device loop: connects to the D200, keeps it awake, follows the app in
 //! front, the running apps and Edge's tabs to switch rule layers, runs
-//! actions on key presses, applies config edits live and reconnects when the
-//! cable comes out. An app drives it with `Command`s and gets a `Status`
-//! whenever something it shows changes.
+//! actions on key presses, runs the enabled addons, applies config edits live
+//! and reconnects when the cable comes out. An app drives it with `Command`s
+//! and gets a `Status` whenever something it shows changes.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -22,6 +22,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::actions::{self, Front};
+use crate::addons::{self, context_of, Addons, KeyState};
 use crate::browser::{self, Bridge};
 use crate::config::{Action, Appearance, Config, Folder, Key, Rule, RuleMode, SettingId, When, Window, BACK_KEY};
 use crate::context::{watch_foreground, ProcessList};
@@ -80,6 +81,10 @@ pub enum Command {
     Simulate(Option<Simulation>),
     /// Reads config.json now instead of at the next poll.
     Reload,
+    /// Reads the addons folder again.
+    RescanAddons,
+    /// Starts an addon that gave up (it quit too often) again.
+    RetryAddon(String),
 }
 
 type ActivitySink = Arc<dyn Fn(&Activity) + Send + Sync>;
@@ -87,6 +92,7 @@ type ActivitySink = Arc<dyn Fn(&Activity) + Send + Sync>;
 pub struct Engine {
     commands: Sender<Command>,
     browser: Bridge,
+    addons: Addons,
 }
 
 impl Engine {
@@ -97,6 +103,11 @@ impl Engine {
     /// The link to the Edge extension, for asking it things (site icons).
     pub fn browser(&self) -> Bridge {
         self.browser.clone()
+    }
+
+    /// The running addons, for the editor's questions (a list's choices, an image).
+    pub fn addons(&self) -> Addons {
+        self.addons.clone()
     }
 }
 
@@ -114,8 +125,11 @@ pub fn spawn(
 ) -> Engine {
     let (tx, rx) = channel();
     let (browser, tabs) = browser::start();
-    let engine = Engine { commands: tx, browser: browser.clone() };
-    std::thread::spawn(move || State::new(config_path, rx, Box::new(on_status), Box::new(on_screen), Arc::new(on_activity), browser, tabs).run());
+    let host = addons::Host::new(&Config::dir_of(&config_path));
+    let engine = Engine { commands: tx, browser: browser.clone(), addons: host.handle() };
+    std::thread::spawn(move || {
+        State::new(config_path, rx, Box::new(on_status), Box::new(on_screen), Arc::new(on_activity), browser, tabs, host).run()
+    });
     engine
 }
 
@@ -123,7 +137,8 @@ pub fn spawn(
 pub fn run(config_path: PathBuf) -> Result<()> {
     let (_commands, rx) = channel();
     let (browser, tabs) = browser::start();
-    State::new(config_path, rx, Box::new(|_| {}), Box::new(|_| {}), Arc::new(|_| {}), browser, tabs).run();
+    let host = addons::Host::new(&Config::dir_of(&config_path));
+    State::new(config_path, rx, Box::new(|_| {}), Box::new(|_| {}), Arc::new(|_| {}), browser, tabs, host).run();
     Ok(())
 }
 
@@ -153,6 +168,9 @@ struct State {
     /// What the device is showing, to send only the keys that change.
     sent: BTreeMap<usize, KeyView>,
     live: Live,
+    addons: addons::Host,
+    /// Keys down now that ran an addon's action, which hears their release.
+    pressed: HashMap<u8, Action>,
     folder: Option<OpenFolder>,
     /// Holding the visor put the default layout up, rules left out, until a
     /// key runs an action: the last touch since then.
@@ -196,6 +214,7 @@ impl State {
         on_activity: ActivitySink,
         browser: Bridge,
         tabs: Receiver<Tabs>,
+        mut addons: addons::Host,
     ) -> Self {
         // A broken config file must not keep the app from starting: run on
         // the defaults and report the error until the file is fixed.
@@ -207,6 +226,7 @@ impl State {
             }
         };
         info!("usando {}", config_path.display());
+        addons.apply(&config.addons);
         let mut state = Self {
             modified: modified(&config_path),
             config_path,
@@ -229,6 +249,8 @@ impl State {
             resolved: BTreeMap::new(),
             sent: BTreeMap::new(),
             live: Live::default(),
+            addons,
+            pressed: HashMap::new(),
             folder: None,
             default_keys: None,
             icons: HashMap::new(),
@@ -262,6 +284,7 @@ impl State {
         state.poll_processes();
         state.poll_sites();
         state.poll_settings();
+        state.poll_addons();
         state.redraw_screen();
         state
     }
@@ -350,6 +373,7 @@ impl State {
                     }
                 }
                 Some((Incoming::Button { index, pressed: true, .. }, _)) => self.press(index as usize, device)?,
+                Some((Incoming::Button { index, pressed: false, .. }, _)) => self.release(index as usize),
                 _ => {}
             }
             // The hold runs while the finger is still down, so it is felt right away.
@@ -383,6 +407,10 @@ impl State {
                 self.sync_keys(device)?;
             }
             self.last_settings = Instant::now();
+        }
+        if self.poll_addons() {
+            // An addon started or quit, or said something about its keys.
+            self.sync_keys(device)?;
         }
         if self.folder.as_ref().is_some_and(|f| f.touched.elapsed() >= FOLDER_TIMEOUT) {
             info!("pasta fechada: ninguém tocou nela");
@@ -420,8 +448,9 @@ impl State {
         self.folder = None;
         self.default_keys = None;
         // Nor to a finger on the visor when the cable went: its hold would run
-        // at once, with nobody touching it.
+        // at once, with nobody touching it. Keys down then never came up.
         self.visor_press = VisorPress::Up;
+        self.pressed.clear();
         self.resolved = self.layout();
         self.poll_processes();
         self.poll_settings();
@@ -465,6 +494,8 @@ impl State {
                     self.reload_if_changed(device)?;
                     self.last_config = Instant::now();
                 }
+                Command::RescanAddons => self.addons.rescan(),
+                Command::RetryAddon(id) => self.addons.retry(&id),
             }
             self.status_dirty = true;
         }
@@ -548,6 +579,25 @@ impl State {
         }
         self.live.settings = settings;
         true
+    }
+
+    /// What the addons said and which of them run. True when a key may look
+    /// different; the addons' list in the status changes with it.
+    fn poll_addons(&mut self) -> bool {
+        if !self.addons.poll() {
+            return false;
+        }
+        self.status_dirty = true;
+        let running = self.addons.running();
+        let stateful = self.addons.stateful();
+        let states: &HashMap<(String, String), KeyState> = self.addons.states();
+        let changed = running != self.live.addons_running || *states != self.live.addon_states || stateful != self.live.addon_stateful;
+        if changed {
+            self.live.addon_states = states.clone();
+            self.live.addons_running = running;
+            self.live.addon_stateful = stateful;
+        }
+        changed
     }
 
     /// Reads the settings of keys that just came up (a rule that started
@@ -665,6 +715,7 @@ impl State {
         }
         self.poll_processes();
         self.poll_settings();
+        self.addons.apply(&self.config.addons);
         // Before writing to the device: a write that fails would leave the old
         // config's rule indices behind, and the next tick would index past the end.
         self.active = self.compute_active();

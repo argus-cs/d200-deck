@@ -51,6 +51,66 @@ export interface Status {
   folder: string | null;
   /** Holding the visor put the default layout up until a key is used. */
   default_keys: boolean;
+  /** Every folder in the addons folder (`addons::AddonStatus`). */
+  addons: AddonStatus[];
+}
+
+/** Mirrors `addons::AddonState`. */
+export type AddonState = 'off' | 'running' | 'restarting' | 'stopped' | 'invalid';
+
+export interface AddonStatus {
+  /** Empty when its addon.json didn't load. */
+  id: string;
+  /** The folder's name, which also tells apart addons that didn't load. */
+  folder: string;
+  path: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  enabled: boolean;
+  state: AddonState;
+  error: string | null;
+  /** How it is started ("node main.js"). */
+  run: string;
+  actions: AddonAction[];
+}
+
+/** An action an addon offers (`addons::ActionDef`). */
+export interface AddonAction {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string | null;
+  label?: string | null;
+  /** The addon says whether the key is on: off shows the second face. */
+  state: boolean;
+  /** The addon may change the key's text. */
+  dynamic: boolean;
+  fields: AddonField[];
+}
+
+export interface AddonField {
+  id: string;
+  type: 'text' | 'number' | 'checkbox' | 'select';
+  label: string;
+  hint?: string | null;
+  placeholder?: string | null;
+  default?: unknown;
+  options?: AddonChoice[];
+  /** A list the addon fills while it runs. */
+  dynamic: boolean;
+  min?: number | null;
+  max?: number | null;
+}
+
+export interface AddonChoice {
+  value: string;
+  label: string;
+  /** Shorter, for the key. */
+  short?: string | null;
+  /** An image for the key: a glyph, or a file of the addon. */
+  icon?: string | null;
 }
 
 export interface ScreenStatus {
@@ -164,7 +224,8 @@ export type Action =
   | { type: 'command'; command: string }
   | { type: 'text'; text: string }
   | { type: 'media'; key: MediaKey }
-  | { type: 'system'; setting: Setting; set?: Switch; value?: string | null };
+  | { type: 'system'; setting: Setting; set?: Switch; value?: string | null }
+  | { type: 'addon'; addon: string; action: string; settings: Record<string, unknown> };
 
 /** The second state of a two-state key; no action repeats the key's. */
 export interface KeyFace {
@@ -183,6 +244,9 @@ export interface Key extends KeyFace {
   toggle?: KeyFace | null;
   /** Pressing it shows these keys instead of running an action. */
   folder?: Folder | null;
+  /** With an addon's action: false keeps the addon from changing the key's text.
+   * Left out (true) by default. */
+  dynamic?: boolean;
 }
 
 /** Keys 2 to 13 (key 1 is "Voltar"); `stay` keeps it open after a key runs. */
@@ -255,6 +319,8 @@ export interface Config {
   keys: Record<string, Key>;
   rules: Rule[];
   screen?: Screen | null;
+  /** The ids of the addons that run. */
+  addons?: string[];
 }
 
 export interface Activity {
@@ -286,7 +352,7 @@ export const position = (n: number) => (n === 14 ? 'Visor' : `Linha ${Math.ceil(
 
 export const blankKey = (): Key => ({ label: '', color: '#24262B', icon: null, action: null });
 
-export const ACTION_TYPES: { value: Action['type']; label: string }[] = [
+export const ACTION_TYPES: { value: Exclude<Action['type'], 'addon'>; label: string }[] = [
   { value: 'hotkey', label: 'Atalho de teclado' },
   { value: 'open', label: 'Abrir app, arquivo ou site' },
   { value: 'command', label: 'Rodar comando' },
@@ -470,7 +536,7 @@ export const MEDIA_KEYS: { value: MediaKey; label: string }[] = [
   { value: 'mute', label: 'Mudo' },
 ];
 
-export function newAction(type: Action['type']): Action {
+export function newAction(type: Exclude<Action['type'], 'addon'>): Action {
   switch (type) {
     case 'hotkey':
       return { type, keys: '' };
@@ -504,7 +570,13 @@ export function opensSite(target: string): boolean {
 }
 
 /** Which page the window shows. */
-export type View = { kind: 'live' } | { kind: 'default' } | { kind: 'rule'; index: number } | { kind: 'new' } | { kind: 'settings' };
+export type View =
+  | { kind: 'live' }
+  | { kind: 'default' }
+  | { kind: 'rule'; index: number }
+  | { kind: 'new' }
+  | { kind: 'settings' }
+  | { kind: 'addons' };
 
 export function ruleTarget(rule: Rule): { kind: 'app' | 'site'; target: string } {
   return 'process' in rule.when ? { kind: 'app', target: rule.when.process } : { kind: 'site', target: rule.when.site };

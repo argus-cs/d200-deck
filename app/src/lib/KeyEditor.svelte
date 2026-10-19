@@ -1,5 +1,7 @@
 <script lang="ts">
   import ActionEditor from './ActionEditor.svelte';
+  import { enabledActions, findAction } from './addons.svelte';
+  import { addonIcon } from './api';
   import ColorPicker from './ColorPicker.svelte';
   import Icon from './Icon.svelte';
   import IconPicker from './IconPicker.svelte';
@@ -12,6 +14,9 @@
     settingInfo,
     settingLook,
     type Action,
+    type AddonAction,
+    type AddonChoice,
+    type AddonStatus,
     type EdgePage,
     type Glyph,
     type Key,
@@ -78,6 +83,10 @@
   /** The Windows setting whose state this key shows, if any. */
   const shown = $derived(key?.action?.type === 'system' ? settingInfo(key.action.setting) : null);
   const followsSetting = $derived(!!shown && shown.kind !== 'once');
+  /** The addon's action this key runs, when its addon is installed. */
+  const addonDef = $derived(key?.action?.type === 'addon' ? findAction(key.action) : null);
+  /** Its second face follows what the addon says, not the presses. */
+  const followsAddon = $derived(!!addonDef?.def.state);
 
   function create() {
     keys[id] = inherited ? { ...$state.snapshot(inherited), front: false } : blankKey();
@@ -123,6 +132,37 @@
       k.folder = null;
     }
   }
+
+  /** What the last addon suggestion put on this key, which the next one may replace. */
+  const suggested: { label: string | null; icon: string | null } = { label: null, icon: null };
+
+  /** A label or icon an addon suggested, and not one the person chose. */
+  const suggestedLabel = (label: string) =>
+    label === suggested.label || enabledActions().some(({ def }) => def.label === label || def.name === label);
+  const suggestedIcon = (icon: string) =>
+    icon === suggested.icon || icon.startsWith('icons/addon-') || enabledActions().some(({ def }) => def.icon === icon);
+
+  /** Gives the key the look an addon suggests, keeping what the person chose themselves.
+   * The icon arrives after copying: it goes to the key it was picked for. */
+  function suggestLook(addon: string, label: string | null | undefined, icon: string | null | undefined) {
+    const k = keys[id];
+    if (label && (!k.label || suggestedLabel(k.label))) {
+      k.label = label;
+      suggested.label = label;
+    }
+    if (icon && (!k.icon || suggestedIcon(k.icon))) {
+      addonIcon(addon, icon)
+        .then((stored) => {
+          if (k.icon && !suggestedIcon(k.icon)) return;
+          k.icon = stored;
+          suggested.icon = stored;
+        })
+        .catch(() => {});
+    }
+  }
+
+  const suggestAddon = (addon: AddonStatus, def: AddonAction) => suggestLook(addon.id, def.label ?? def.name, def.icon);
+  const suggestChoice = (addon: string, choice: AddonChoice) => suggestLook(addon, choice.short ?? choice.label, choice.icon);
 
   /** Gives a key the look of the Windows setting just picked, keeping what the person chose themselves.
    * The label suggested for the previous one goes too: a device's name isn't among the fixed ones. */
@@ -226,7 +266,34 @@
       </span>
     </label>
   {:else}
-    <ActionEditor bind:action={key.action} id="key" {edgePages} onpick={suggest} />
+    <ActionEditor
+      bind:action={key.action}
+      id="key"
+      {edgePages}
+      onpick={suggest}
+      onaddon={suggestAddon}
+      onaddonchoice={suggestChoice}
+    />
+
+    {#if addonDef?.def.dynamic}
+      <label class="check">
+        <input
+          type="checkbox"
+          checked={key.dynamic !== false}
+          onchange={(e) => {
+            // On is the default, so it is left out of config.json.
+            key.dynamic = e.currentTarget.checked ? undefined : false;
+          }}
+        />
+        <span>
+          <span>Deixar o addon mudar o texto da tecla</span>
+          <span class="muted small">
+            O texto que o addon {addonDef.addon.name} manda aparece no lugar do seu enquanto ele roda. Desligado, a tecla mostra sempre o texto que
+            você escolheu.
+          </span>
+        </span>
+      </label>
+    {/if}
 
     <label class="check">
       <input type="checkbox" checked={!!key.toggle} onchange={(e) => setTwoState(e.currentTarget.checked)} />
@@ -237,6 +304,11 @@
         {:else if followsSetting}
           <span>Outro visual quando estiver desligado</span>
           <span class="muted small">A tecla segue o estado real do Windows. Sem o segundo visual, ela só escurece quando desligado.</span>
+        {:else if followsAddon && addonDef}
+          <span>Outro visual quando estiver desligado</span>
+          <span class="muted small">
+            A tecla segue o que o addon {addonDef.addon.name} informa. Sem o segundo visual, ela só escurece quando desligado.
+          </span>
         {:else}
           <span>Tecla de dois estados</span>
           <span class="muted small">Cada toque executa a ação e alterna o visual, como microfone ligado e mutado.</span>
@@ -284,7 +356,7 @@
           <ColorPicker label="Borda" value={key.toggle.border} allowNone noneLabel="Sem borda" onchange={(c) => paint(key.toggle, 'border', c)} />
         </div>
         <ActionEditor bind:action={key.toggle.action} id="second" noneLabel="A mesma do primeiro estado" {edgePages} />
-        {#if !followsSetting}
+        {#if !followsSetting && !followsAddon}
           <p class="muted small">
             O app não sabe se o outro programa mudou de estado sozinho (por exemplo, se você mutar pelo mouse). Nesse caso, um toque a mais
             acerta o visual.

@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Activity, Config, Glyph, RunningApp, Screen, ScreenStatus, Setting, Simulation, Status } from './types';
+import type { Activity, AddonChoice, Config, Glyph, RunningApp, Screen, ScreenStatus, Setting, Simulation, Status } from './types';
 
 export const getStatus = () => invoke<Status>('get_status');
 export const onStatus = (handler: (status: Status) => void) =>
@@ -85,6 +85,20 @@ export const onUpdate = (handler: (update: Update | null) => void) =>
 /** Download progress in percent (null while the size is unknown). */
 export const onUpdateProgress = (handler: (percent: number | null) => void) =>
   listen<number | null>('update-progress', (event) => handler(event.payload));
+
+/** The choices of a list an addon fills while it runs. */
+export const addonOptions = (addon: string, action: string, field: string, settings: Record<string, unknown>) =>
+  invoke<AddonChoice[]>('addon_options', { addon, action, field, settings });
+/** An image an addon suggests, copied beside the config; returns the icon to store. */
+export const addonIcon = (addon: string, icon: string) => invoke<string>('addon_icon', { addon, icon });
+/** Reads the addons folder again; the status brings the new list. */
+export const rescanAddons = () => invoke('rescan_addons');
+/** Starts an addon that gave up (it quit too often) again. */
+export const retryAddon = (id: string) => invoke('retry_addon', { id });
+export const openAddonsFolder = () => invoke('open_addons_folder');
+/** docs/addons.md on GitHub, in the browser. */
+export const openAddonsGuide = () => invoke('open_addons_guide');
+export const openLog = () => invoke('open_log');
 
 export const extensionFolder = () => invoke<string>('extension_folder');
 export const openExtensionFolder = () => invoke('open_extension_folder');

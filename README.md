@@ -108,6 +108,10 @@ O visor largo (a tecla 14) mostra relógio, uso do PC (CPU, memória, GPU e rede
   <img src="docs/images/visor-light.png" alt="O editor do visor no layout padrão">
 </picture>
 
+### Addons
+
+Programas de terceiros trazem ações novas para as teclas: um addon pode abrir jogos, controlar um app ou um serviço e mudar o que a tecla mostra (acesa, apagada, um contador). Cada addon é uma pasta em `%APPDATA%\D200Deck\addons`, feito em qualquer linguagem, e só roda depois que você liga na página **Addons**. Na primeira vez, o app mostra quem fez o addon e o que ele vai rodar. As ações aparecem no editor de tecla, no grupo **Addons**, e o visual da tecla continua sendo seu. Como instalar e como fazer o seu: [`docs/addons.md`](docs/addons.md).
+
 ### E mais
 
 - O D200 ao vivo na janela, com cada tecla apertada acendendo.
@@ -137,7 +141,7 @@ Na versão 0.3.3 a extensão ganhou um ID fixo. Quem já tinha a extensão carre
 
 ## Configuração
 
-Tudo é salvo em `%APPDATA%\D200Deck\config.json`, e os ícones escolhidos são copiados para `%APPDATA%\D200Deck\icons`. O arquivo pode ser editado à mão: o app percebe a mudança e recarrega. Uma configuração inválida é ignorada, e o app continua com a anterior.
+Tudo é salvo em `%APPDATA%\D200Deck\config.json`, e os ícones escolhidos são copiados para `%APPDATA%\D200Deck\icons`. O arquivo pode ser editado à mão: o app percebe a mudança e recarrega. Uma configuração inválida é ignorada, e o app continua com a anterior. Os addons ficam em `%APPDATA%\D200Deck\addons`, e o que cada um guarda, em `%APPDATA%\D200Deck\addon-data`.
 
 O que o app faz e os erros que encontra ficam em `%APPDATA%\D200Deck\d200deck.log`, que é o primeiro lugar para olhar quando algo não funciona.
 
@@ -200,10 +204,10 @@ O script abre o app em modo de desenvolvimento com um `%APPDATA%` temporário (a
 | Pasta | O quê |
 | --- | --- |
 | `crates/d200` | Driver do protocolo USB do D200 e a ferramenta `probe` |
-| `crates/engine` | Motor: regras, ações, desenho das teclas e do visor, laço com o aparelho, `deckd` (o app sem interface) |
+| `crates/engine` | Motor: regras, ações, addons, desenho das teclas e do visor, laço com o aparelho, `deckd` (o app sem interface) |
 | `app` | App Tauri 2: Rust em `src-tauri`, interface em Svelte 5 + TypeScript em `src` |
 | `extension-edge` | Extensão Manifest V3 que conta ao app quais sites estão abertos |
-| `docs` | Imagens deste README e o script que as refaz |
+| `docs` | Imagens deste README e o script que as refaz; o guia dos addons e o addon de exemplo |
 
 O protocolo do aparelho, as decisões do projeto e as armadilhas encontradas estão em [`CLAUDE.md`](CLAUDE.md).
 

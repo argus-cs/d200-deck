@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::parse_hotkey;
+use crate::addons::{self, Settings};
 use crate::icons;
 use crate::rules::host_of;
 use crate::system::{self, Kind, Setting, Switch};
@@ -27,6 +28,9 @@ pub struct Config {
     /// The visor. Configs from before it existed only have `window`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub screen: Option<Screen>,
+    /// The addons that run, by id. A new one stays off until enabled here.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub addons: Vec<String>,
 }
 
 /// What the visor (the wide screen, key 14) shows.
@@ -291,6 +295,14 @@ impl Action {
         host_of(target).filter(|host| !host.is_empty())
     }
 
+    /// An addon's action: the addon, the action's id and its settings.
+    pub fn addon(&self) -> Option<(&str, &str, &Settings)> {
+        match self {
+            Action::Addon { addon, action, settings } => Some((addon, action, settings)),
+            _ => None,
+        }
+    }
+
     /// The Windows setting a "system" action changes, when it has a state
     /// to show on the key (Bluetooth on, this audio output chosen…).
     pub fn watched_setting(&self) -> Option<SettingId> {
@@ -355,6 +367,10 @@ pub struct Key {
     /// Pressing it shows these keys in place of the layout, instead of an action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<Folder>,
+    /// With an addon's action: the addon may change the key's text while it
+    /// shows. Off, the key always looks as configured.
+    #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
+    pub dynamic: bool,
 }
 
 /// Keys that replace the whole layout while open. Key 1 goes back; using
@@ -402,6 +418,7 @@ impl Default for Key {
             front: false,
             toggle: None,
             folder: None,
+            dynamic: true,
         }
     }
 }
@@ -482,6 +499,16 @@ pub enum Action {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<String>,
     },
+    /// An action an addon offers, run by the addon (see `addons`).
+    Addon {
+        /// The addon's id.
+        addon: String,
+        /// The action's id in the addon's manifest.
+        action: String,
+        /// What the action's fields hold, as the addon reads them.
+        #[serde(default)]
+        settings: Settings,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -533,7 +560,15 @@ impl Default for Config {
                 (n, key)
             })
             .collect();
-        Self { brightness: 80, window: Window::Clock, label: LabelStyle::default(), keys, rules: Vec::new(), screen: None }
+        Self {
+            brightness: 80,
+            window: Window::Clock,
+            label: LabelStyle::default(),
+            keys,
+            rules: Vec::new(),
+            screen: None,
+            addons: Vec::new(),
+        }
     }
 }
 
@@ -622,6 +657,9 @@ impl Config {
         }
         if !is_hex_color(&self.label.color, false) {
             bail!("label.color precisa ser hex sem # (ex.: FFFFFF)");
+        }
+        if let Some(bad) = self.addons.iter().find(|id| !addons::is_id(id)) {
+            bail!("addons: {bad:?} não é o id de um addon");
         }
         for (n, key) in &self.keys {
             validate_key(*n, key)?;
@@ -736,6 +774,14 @@ fn validate_face(icon: Option<&str>, color: &str, action: Option<&Action>) -> Re
             parse_hotkey(keys)?;
         }
         Some(Action::System { setting, value, .. }) => system::validate(*setting, value.as_deref())?,
+        Some(Action::Addon { addon, action, .. }) => {
+            if !addons::is_id(addon) {
+                bail!("{addon:?} não é o id de um addon");
+            }
+            if action.trim().is_empty() {
+                bail!("falta a ação do addon {addon}");
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -931,6 +977,32 @@ mod tests {
             r#"{ "keys": { "1": { "action": { "type": "system", "setting": "projection" } } } }"#,
             r#"{ "keys": { "1": { "action": { "type": "system", "setting": "power_mode", "value": "turbo" } } } }"#,
             r#"{ "keys": { "1": { "action": { "type": "system", "setting": "wifi", "value": "x" } } } }"#,
+        ] {
+            assert!(serde_json::from_str::<Config>(bad).unwrap().validate().is_err(), "deveria rejeitar {bad}");
+        }
+    }
+
+    #[test]
+    fn parses_addon_actions() {
+        let json = r#"{ "addons": ["exemplo.contador"], "keys": {
+            "1": { "action": { "type": "addon", "addon": "exemplo.contador", "action": "count", "settings": { "step": 2 } } },
+            "2": { "dynamic": false, "action": { "type": "addon", "addon": "exemplo.contador", "action": "switch" } }
+        } }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        let (addon, action, settings) = config.keys[&1].action.as_ref().unwrap().addon().unwrap();
+        assert_eq!((addon, action, settings["step"].as_i64()), ("exemplo.contador", "count", Some(2)));
+        assert!(config.keys[&1].dynamic, "the addon may change the text unless turned off");
+        assert!(!config.keys[&2].dynamic);
+        assert!(config.keys[&2].action.as_ref().unwrap().addon().unwrap().2.is_empty());
+        let saved = serde_json::to_value(&config).unwrap();
+        assert_eq!(saved["keys"]["1"].get("dynamic"), None, "on is left out");
+        assert_eq!(saved["addons"], serde_json::json!(["exemplo.contador"]));
+        assert_eq!(serde_json::to_value(Config::default()).unwrap().get("addons"), None);
+        for bad in [
+            r#"{ "addons": ["Não"] }"#,
+            r#"{ "keys": { "1": { "action": { "type": "addon", "addon": "", "action": "count" } } } }"#,
+            r#"{ "keys": { "1": { "action": { "type": "addon", "addon": "exemplo.contador", "action": " " } } } }"#,
         ] {
             assert!(serde_json::from_str::<Config>(bad).unwrap().validate().is_err(), "deveria rejeitar {bad}");
         }

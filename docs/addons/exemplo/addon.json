@@ -1,0 +1,35 @@
+{
+  "id": "exemplo.contador",
+  "name": "Contador",
+  "version": "0.1.0",
+  "author": "D200 Deck",
+  "description": "Addon de exemplo: conta toques e liga e desliga coisas de mentira. Serve de modelo para fazer o seu.",
+  "api": 1,
+  "run": ["node", "main.js"],
+  "actions": [
+    {
+      "id": "count",
+      "name": "Contar",
+      "description": "Cada toque soma ao contador, que aparece na própria tecla.",
+      "icon": "plus",
+      "label": "Contar",
+      "dynamic": true,
+      "fields": [
+        { "id": "step", "type": "number", "label": "Quanto somar a cada toque", "default": 1, "min": 1, "max": 100 },
+        { "id": "unit", "type": "text", "label": "Palavra depois do número", "placeholder": "toques" },
+        { "id": "down", "type": "checkbox", "label": "Contar para baixo" }
+      ]
+    },
+    {
+      "id": "switch",
+      "name": "Ligar e desligar",
+      "description": "Liga e desliga uma coisa de mentira. A tecla mostra se está ligada.",
+      "icon": "zap",
+      "label": "Ligar",
+      "state": true,
+      "fields": [
+        { "id": "item", "type": "select", "label": "O que ligar e desligar", "dynamic": true, "hint": "A lista vem do addon." }
+      ]
+    }
+  ]
+}

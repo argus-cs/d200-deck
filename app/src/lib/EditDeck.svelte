@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { addonProblem } from './addons.svelte';
   import Icon from './Icon.svelte';
   import { keyUrl, screenUrl } from './icons.svelte';
   import { BACK_KEY, KEY_NUMBERS, screenLabel, type Key, type LabelStyle, type Screen } from './types';
@@ -50,6 +51,8 @@
         own: !!own && !back,
         twoState: !!shown?.toggle,
         isFolder: !!shown?.folder,
+        /** An addon's key: why it doesn't work now, or '' when it does. */
+        addon: shown?.action?.type === 'addon' ? (addonProblem(shown.action) ?? '') : null,
         image: shown ? keyUrl(shown, label) : null,
         state: back ? 'back' : own ? (inherited ? 'override' : 'own') : base ? 'inherited' : 'empty',
       };
@@ -113,6 +116,11 @@
       {#if !tile.shown}<span class="hint">+</span>{/if}
       {#if tile.twoState}<span class="two" title="Tecla de dois estados">2</span>{/if}
       {#if tile.isFolder}<span class="two folder-badge" title="Pasta"><Icon name="folder" size={11} /></span>{/if}
+      {#if tile.addon !== null}
+        <span class="two folder-badge" class:addon-problem={!!tile.addon} title={tile.addon || 'Tecla de addon'}>
+          <Icon name={tile.addon ? 'alert' : 'puzzle'} size={11} />
+        </span>
+      {/if}
     </button>
   {/each}
   <button
@@ -208,6 +216,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+  .addon-problem {
+    background: var(--error-text);
+    color: var(--error);
   }
   .back {
     border-style: dashed;

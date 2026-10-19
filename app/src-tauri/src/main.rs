@@ -7,6 +7,7 @@ mod update;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
+use deck_engine::addons::{self, Choice, Settings};
 use deck_engine::config::{Action, Config, KeyFace, LabelStyle, Screen};
 use deck_engine::rules::Simulation;
 use deck_engine::runtime::{self, Command, Engine, Status};
@@ -136,7 +137,7 @@ async fn app_icon(path: String) -> CmdResult<String> {
         let exe = PathBuf::from(&path);
         let png = icons::app_icon(&exe)?;
         let stem = exe.file_stem().unwrap_or_default().to_string_lossy().to_string();
-        store_icon(&format!("app-{stem}"), |target| std::fs::write(target, &png))
+        store_icon(&format!("app-{stem}"), "png", |target| std::fs::write(target, &png))
     })
     .await
 }
@@ -163,16 +164,16 @@ async fn pick_image(window: WebviewWindow) -> CmdResult<Option<String>> {
         return Ok(None);
     };
     let stem = source.file_stem().unwrap_or_default().to_string_lossy().to_string();
-    Ok(Some(store_icon(&stem, |target| std::fs::copy(&source, target).map(|_| ()))?))
+    Ok(Some(store_icon(&stem, "png", |target| std::fs::copy(&source, target).map(|_| ()))?))
 }
 
 /// The icon Edge keeps for an open page, saved for a key.
 #[tauri::command]
 async fn site_icon(state: State<'_, DeckState>, url: String, host: String) -> CmdResult<String> {
-    let browser = state.engine.get().ok_or_else(|| anyhow::anyhow!("o motor ainda não iniciou"))?.browser();
+    let browser = engine(&state)?.browser();
     blocking(move || {
         let png = icons::frame_bytes(&browser.favicon(&url)?)?;
-        store_icon(&format!("site-{host}"), |target| std::fs::write(target, &png))
+        store_icon(&format!("site-{host}"), "png", |target| std::fs::write(target, &png))
     })
     .await
 }
@@ -191,10 +192,10 @@ fn pick(window: &WebviewWindow, filter: Option<(&str, &[&str])>) -> anyhow::Resu
 
 /// Writes a key image into the config folder, under a free name made from
 /// `stem`; returns the path to store ("icons/app-Discord.png").
-fn store_icon(stem: &str, write: impl FnOnce(&Path) -> std::io::Result<()>) -> anyhow::Result<String> {
+fn store_icon(stem: &str, extension: &str, write: impl FnOnce(&Path) -> std::io::Result<()>) -> anyhow::Result<String> {
     let folder = config_dir().join("icons");
     std::fs::create_dir_all(&folder)?;
-    let target = free_name(&folder, stem);
+    let target = free_name(&folder, stem, extension);
     write(&target)?;
     Ok(format!("icons/{}", target.file_name().unwrap_or_default().to_string_lossy()))
 }
@@ -262,6 +263,67 @@ async fn iconify_save(id: String) -> CmdResult<String> {
     blocking(move || iconify::save(&config_dir(), &id)).await
 }
 
+fn engine(state: &DeckState) -> anyhow::Result<&Engine> {
+    state.engine.get().ok_or_else(|| anyhow::anyhow!("o motor ainda não iniciou"))
+}
+
+/// The choices of a list an addon fills while it runs (the games installed).
+#[tauri::command]
+async fn addon_options(state: State<'_, DeckState>, addon: String, action: String, field: String, settings: Settings) -> CmdResult<Vec<Choice>> {
+    let addons = engine(&state)?.addons();
+    blocking(move || addons.options(&addon, &action, &field, &settings)).await
+}
+
+/// An image an addon suggests for a key (its action's icon, a list choice's):
+/// a built-in glyph stays as it is, a file is copied beside the config so the
+/// key keeps it. Returns the icon to store.
+#[tauri::command]
+async fn addon_icon(state: State<'_, DeckState>, addon: String, icon: String) -> CmdResult<String> {
+    if icons::is_glyph(&icon) {
+        return Ok(icon);
+    }
+    let addons = engine(&state)?.addons();
+    blocking(move || {
+        let source = addons.image(&addon, &icon)?;
+        let extension = if icons::is_svg(&icon) { "svg" } else { "png" };
+        let stem = source.file_stem().unwrap_or_default().to_string_lossy().to_string();
+        store_icon(&format!("addon-{stem}"), extension, |target| std::fs::copy(&source, target).map(|_| ()))
+    })
+    .await
+}
+
+/// Reads the addons folder again (the Addons page asks when it opens).
+#[tauri::command]
+fn rescan_addons(state: State<DeckState>) {
+    state.send(Command::RescanAddons);
+}
+
+/// Starts an addon that gave up again.
+#[tauri::command]
+fn retry_addon(state: State<DeckState>, id: String) {
+    state.send(Command::RetryAddon(id));
+}
+
+#[tauri::command]
+async fn open_addons_folder() -> CmdResult<()> {
+    let folder = addons::folder(&config_dir());
+    std::fs::create_dir_all(&folder)?;
+    open(folder.display().to_string(), None)
+}
+
+/// The guide for addon authors, in the browser. A fixed address: the window
+/// can't open others through it.
+#[tauri::command]
+async fn open_addons_guide() -> CmdResult<()> {
+    open("https://github.com/argus-cs/d200-deck/blob/main/docs/addons.md".into(), None)
+}
+
+/// The log file, where addons' messages go too.
+#[tauri::command]
+async fn open_log() -> CmdResult<()> {
+    open(deck_engine::logging::file(&config_dir()).display().to_string(), None)
+}
+
 /// The names of the active audio outputs or inputs, for the setting that picks one.
 #[tauri::command]
 async fn audio_devices(setting: Setting) -> CmdResult<Vec<String>> {
@@ -284,12 +346,12 @@ async fn running_apps() -> Vec<RunningApp> {
 }
 
 /// `folder/<stem>.png`, or `<stem>-2.png`, `<stem>-3.png`… when taken.
-fn free_name(folder: &Path, stem: &str) -> PathBuf {
+fn free_name(folder: &Path, stem: &str, extension: &str) -> PathBuf {
     let stem: String = stem.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '.' { c } else { '-' }).collect();
-    let mut candidate = folder.join(format!("{stem}.png"));
+    let mut candidate = folder.join(format!("{stem}.{extension}"));
     let mut n = 2;
     while candidate.exists() {
-        candidate = folder.join(format!("{stem}-{n}.png"));
+        candidate = folder.join(format!("{stem}-{n}.{extension}"));
         n += 1;
     }
     candidate
@@ -406,6 +468,13 @@ fn main() {
             extension_folder,
             open_extension_folder,
             open_edge_extensions,
+            addon_options,
+            addon_icon,
+            rescan_addons,
+            retry_addon,
+            open_addons_folder,
+            open_addons_guide,
+            open_log,
             update::get_update,
             update::check_update,
             update::install_update

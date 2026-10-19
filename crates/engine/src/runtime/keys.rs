@@ -1,6 +1,6 @@
 //! What each key shows and does: the faces of two-state keys, states that
-//! change on their own (apps running, sites open in Edge, Windows settings),
-//! folders, the images sent to the device, and key presses.
+//! change on their own (apps running, sites open in Edge, Windows settings,
+//! what addons say), folders, the images sent to the device, and key presses.
 
 use super::*;
 
@@ -30,6 +30,13 @@ pub(super) struct Live {
     pub(super) sites_open: HashSet<String>,
     /// Windows settings keys show, as last read (`None`: not on this PC).
     pub(super) settings: HashMap<SettingId, Option<bool>>,
+    /// The addons running now, by id.
+    pub(super) addons_running: HashSet<String>,
+    /// What addons said about their keys, by addon id and context.
+    pub(super) addon_states: HashMap<(String, String), KeyState>,
+    /// Addon actions whose keys follow what the addon says (on or off), by
+    /// addon id and action id.
+    pub(super) addon_stateful: HashSet<(String, String)>,
 }
 
 impl Live {
@@ -39,32 +46,72 @@ impl Live {
         Some(self.settings.get(&id).copied().flatten())
     }
 
+    /// What an addon said about keys with this action, if it said anything.
+    fn addon_state(&self, action: &Action) -> Option<&KeyState> {
+        let (addon, id, settings) = action.addon()?;
+        self.addon_states.get(&(addon.to_string(), context_of(id, settings)))
+    }
+
+    /// `Some` for a key whose addon says whether it is on: whether it is, if known.
+    fn addon_on(&self, key: &Key) -> Option<Option<bool>> {
+        let action = key.action.as_ref()?;
+        let (addon, id, _) = action.addon()?;
+        if !self.addon_stateful.contains(&(addon.to_string(), id.to_string())) {
+            return None;
+        }
+        Some(self.addon_state(action).and_then(|state| state.on))
+    }
+
+    /// Its second face follows something outside (a Windows setting, an
+    /// addon), not the presses.
+    pub(super) fn follows(&self, key: &Key) -> bool {
+        self.setting(key).is_some() || self.addon_on(key).is_some()
+    }
+
     /// A key showing a Windows setting has its second face while the setting
-    /// is off, whoever turned it off; any other one after an odd number of presses.
+    /// is off, whoever turned it off, and an addon's while the addon says it
+    /// is off; any other one after an odd number of presses.
     pub(super) fn toggled(&self, config: &Config, slot: &Slot, number: u8) -> bool {
         if slot.key.toggle.is_none() {
             return false;
         }
-        match self.setting(&slot.key) {
-            Some(state) => state == Some(false),
-            None => self.toggled.contains(&toggle_id(config, slot, number)),
+        match (self.setting(&slot.key), self.addon_on(&slot.key)) {
+            (Some(state), _) | (None, Some(state)) => state == Some(false),
+            (None, None) => self.toggled.contains(&toggle_id(config, slot, number)),
         }
     }
 
+    /// How a key looks and acts now: its face, with the text its addon put
+    /// on it when the key lets it.
+    pub(super) fn face<'a>(&'a self, key: &'a Key, toggled: bool) -> Face<'a> {
+        let mut face = face(key, toggled);
+        let label = face.action.filter(|_| key.dynamic).and_then(|action| self.addon_state(action)?.label.as_deref());
+        if let Some(label) = label {
+            face.appearance.label = label;
+        }
+        face
+    }
+
     /// Darkened: an "open app" key whose app is closed, an "open site" key
-    /// whose site has no tab in Edge, a setting this PC lacks, or a setting
-    /// that is off on a key with no second face for it.
+    /// whose site has no tab in Edge, a setting this PC lacks, an addon's key
+    /// while the addon doesn't run or says it isn't available, or a setting or
+    /// an addon's key that is off with no second face for it.
     pub(super) fn dim(&self, key: &Key, face: &Face) -> bool {
         let closed = face.action.is_some_and(|action| {
             action.watched_process().is_some_and(|process| !self.apps_running.contains(&process))
                 || action.watched_site().is_some_and(|site| !self.sites_open.contains(&site))
+        });
+        let addon = face.action.is_some_and(|action| match action.addon() {
+            Some((addon, ..)) => !self.addons_running.contains(addon) || self.addon_state(action).is_some_and(|state| !state.available),
+            None => false,
         });
         let setting = match self.setting(key) {
             Some(None) => true,
             Some(Some(false)) => key.toggle.is_none(),
             _ => false,
         };
-        closed || setting
+        let addon_off = self.addon_on(key) == Some(Some(false)) && key.toggle.is_none();
+        closed || addon || setting || addon_off
     }
 }
 
@@ -138,6 +185,9 @@ impl State {
         }
         self.resolved = self.layout();
         self.read_new_settings();
+        // Keys that just came up may be an addon's: it hears which show.
+        let addon_actions: Vec<Action> = self.actions_in_view().filter(|action| action.addon().is_some()).cloned().collect();
+        self.addons.watch(&addon_actions);
         // Keys that just came up (a rule, a folder) may go to a site.
         self.poll_sites();
         // A rule with its own visor may have started or stopped.
@@ -171,14 +221,14 @@ impl State {
         let slot = self.resolved.get(&number).cloned();
         let rule = slot.as_ref().and_then(|s| s.rule).map(|i| &self.config.rules[i]);
         let toggled = slot.as_ref().is_some_and(|s| self.live.toggled(&self.config, s, number));
-        let current = slot.as_ref().map(|s| face(&s.key, toggled));
+        let current = slot.as_ref().map(|s| self.live.face(&s.key, toggled));
         let in_folder = self.folder.is_some();
         let back = in_folder && number == BACK_KEY;
         let opens = slot.as_ref().is_some_and(|s| s.key.folder.is_some());
         let described = match () {
             _ if back => Some("voltar".to_string()),
             _ if opens => Some("abrir pasta".to_string()),
-            _ => current.as_ref().and_then(|f| f.action).map(actions::describe),
+            _ => current.as_ref().and_then(|f| f.action).map(|action| self.describe(action)),
         };
         let activity = Activity {
             number,
@@ -234,17 +284,21 @@ impl State {
                     Some(Front::Tab { tab, .. }) => format!(" na aba {tab} do Edge"),
                     None => String::new(),
                 };
-                info!("tecla {number} ({origin}): {}{place}", actions::describe(&action));
+                info!("tecla {number} ({origin}): {}{place}", self.describe(&action));
                 if action.watched_setting().is_some() {
                     self.settings_fast_until = Some(Instant::now() + SETTING_FAST_FOR);
                 }
-                let sink = Arc::clone(&self.on_activity);
-                actions::run(action, front, move |error| sink(&Activity { error: Some(error), ..activity }));
+                if action.addon().is_some() {
+                    // Its addon hears the release too (push to talk).
+                    self.pressed.insert(number, action.clone());
+                }
+                self.run_action(action, front, activity);
             }
         }
         let mut changed = false;
-        // A key showing a Windows setting follows the setting, not the presses.
-        if slot.key.toggle.is_some() && self.live.setting(&slot.key).is_none() {
+        // A key showing a Windows setting or an addon's on and off follows
+        // that, not the presses.
+        if slot.key.toggle.is_some() && !self.live.follows(&slot.key) {
             let id = toggle_id(&self.config, &slot, number);
             if !self.live.toggled.remove(&id) {
                 self.live.toggled.insert(id);
@@ -266,6 +320,38 @@ impl State {
             self.sync_keys(Some(device))?;
         }
         Ok(())
+    }
+
+    /// A key came up: the addon whose action it ran hears it.
+    pub(super) fn release(&mut self, index: usize) {
+        let Some(action) = self.pressed.remove(&(index as u8 + 1)) else {
+            return;
+        };
+        if let Some((addon, id, settings)) = action.addon() {
+            self.addons.handle().release(addon, id, settings);
+        }
+    }
+
+    /// Runs an action on its own thread; an addon's goes to its addon. A
+    /// failure reaches the app as the activity's error.
+    pub(super) fn run_action(&self, action: Action, front: Option<Front>, activity: Activity) {
+        let sink = Arc::clone(&self.on_activity);
+        let on_error = move |error| sink(&Activity { error: Some(error), ..activity });
+        match action {
+            Action::Addon { addon, action, settings } => {
+                let addons = self.addons.handle();
+                actions::run_task(move || addons.press(&addon, &action, &settings), front, on_error);
+            }
+            action => actions::run(action, front, on_error),
+        }
+    }
+
+    /// What an action does, for the log and the window ("Contador: Contar").
+    pub(super) fn describe(&self, action: &Action) -> String {
+        match action.addon() {
+            Some((addon, id, _)) => self.addons.describe(addon, id),
+            None => actions::describe(action),
+        }
     }
 
     fn front_for(&self, rule: &Rule) -> Option<Front> {
@@ -297,7 +383,7 @@ fn build_views(
             let view = match resolved.get(&(number as u8)) {
                 None => KeyView::default(),
                 Some(slot) => {
-                    let current = face(&slot.key, live.toggled(config, slot, number as u8));
+                    let current = live.face(&slot.key, live.toggled(config, slot, number as u8));
                     // The label is drawn in the image, so each key can have its own colors.
                     let look = icons::Look::new(&current.appearance, &config.label, &default_text, live.dim(&slot.key, &current));
                     KeyView { text: String::new(), image: cached_icon(cache, &look, base, number) }
@@ -403,6 +489,45 @@ mod tests {
         assert!(!live.dim(&redmine, &face(&redmine, false)));
         let unwatched = Key { action: Some(open("https://youtube.com/", false)), ..Key::default() };
         assert!(!live.dim(&unwatched, &face(&unwatched, false)), "watching turned off");
+    }
+
+    #[test]
+    fn addon_keys_show_what_their_addon_says() {
+        let action = |id: &str| Action::Addon { addon: "exemplo.contador".into(), action: id.into(), settings: Default::default() };
+        let count = Key { label: "Contar".into(), action: Some(action("count")), ..Key::default() };
+        let mut live = Live::default();
+        assert!(live.dim(&count, &live.face(&count, false)), "the addon doesn't run: dimmed");
+        live.addons_running.insert("exemplo.contador".into());
+        assert!(!live.dim(&count, &live.face(&count, false)));
+        assert_eq!(live.face(&count, false).appearance.label, "Contar", "nothing said yet: its own text");
+
+        let id = ("exemplo.contador".to_string(), context_of("count", &Default::default()));
+        live.addon_states.insert(id.clone(), KeyState { label: Some("3 toques".into()), ..KeyState::default() });
+        assert_eq!(live.face(&count, false).appearance.label, "3 toques");
+        let fixed = Key { dynamic: false, ..count.clone() };
+        assert_eq!(live.face(&fixed, false).appearance.label, "Contar", "the key keeps its text when it says so");
+        live.addon_states.insert(id, KeyState { available: false, ..KeyState::default() });
+        assert!(live.dim(&count, &live.face(&count, false)), "the addon says it isn't available");
+
+        // An action with state: the second face follows the addon, not the presses.
+        let config = Config::default();
+        let second = crate::config::KeyFace { label: "Desligado".into(), ..Default::default() };
+        let switch = Key { action: Some(action("switch")), toggle: Some(second), ..Key::default() };
+        let slot = Slot { key: switch.clone(), rule: None, folder: None };
+        live.toggled.insert((None, None, 1));
+        assert!(live.toggled(&config, &slot, 1), "not stateful: the presses count");
+        live.addon_stateful.insert(("exemplo.contador".into(), "switch".into()));
+        assert!(live.follows(&switch));
+        assert!(!live.toggled(&config, &slot, 1), "stateful, nothing said yet: first face");
+        let id = ("exemplo.contador".to_string(), context_of("switch", &Default::default()));
+        live.addon_states.insert(id.clone(), KeyState { on: Some(false), ..KeyState::default() });
+        assert!(live.toggled(&config, &slot, 1), "off shows the second face");
+        live.addon_states.insert(id, KeyState { on: Some(true), ..KeyState::default() });
+        assert!(!live.toggled(&config, &slot, 1));
+        // Without a second face, off dims.
+        let plain = Key { toggle: None, ..switch };
+        live.addon_states.insert(("exemplo.contador".to_string(), context_of("switch", &Default::default())), KeyState { on: Some(false), ..KeyState::default() });
+        assert!(live.dim(&plain, &live.face(&plain, false)));
     }
 
     #[test]

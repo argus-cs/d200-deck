@@ -2,6 +2,17 @@
 
 O que mudou em cada versão do D200 Deck, para quem usa o app. O PR que sobe a versão escreve a seção dela (`## X.Y.Z`): o "Testes" do PR exige a seção da versão atual, e o release no GitHub usa esse texto.
 
+## 0.4.0 — 2026-10-19
+
+### Novidades
+- **Addons:** programas de terceiros agora podem trazer ações novas para as teclas. Cada addon é uma pasta em `%APPDATA%\D200Deck\addons`, e a nova página **Addons**, na barra lateral, lista os que estão lá, liga e desliga cada um e mostra quando algum parou, com **Tentar de novo** e **Abrir o log**. Addons novos chegam desligados: na primeira vez que você liga um, o app mostra quem o fez e o que ele vai rodar e pede confirmação, porque um addon roda com as suas permissões do Windows
+- No editor de tecla, as ações dos addons ligados ficam no grupo **Addons** de **Ação**, com os campos de cada uma. O addon pode acender e escurecer a tecla, trocar para o segundo estado e mudar o texto dela (para manter sempre o seu texto, desmarque **Deixar o addon mudar o texto da tecla**). O ícone, as cores e o resto do visual continuam sendo seus
+- **Addon da Steam**, que já vem com o app: uma tecla abre um jogo instalado e ganha a capa dele, acesa enquanto o jogo está aberto; com o jogo aberto, um toque traz a janela dele para a frente. Outra tecla abre a biblioteca, os amigos, os downloads, a loja ou as configurações da Steam. Ele começa ligado se a Steam estiver instalada; para desligar, use a página Addons
+- Para quem quer fazer um addon: o guia [`docs/addons.md`](https://github.com/argus-cs/d200-deck/blob/main/docs/addons.md) explica o formato e traz um exemplo pronto. Dá para escrever em qualquer linguagem
+
+### Ao atualizar
+- Quem tem a 0.3.0 até a 0.3.11 recebe o aviso no próprio app (no topo da janela e no menu da bandeja) em até 6 horas, ou na hora em Ajustes → Atualizações → Procurar atualizações. Quem vem da 0.3.2 ou anterior precisa recarregar a extensão do Edge uma vez, como explicado na 0.3.3.
+
 ## 0.3.11 — 2026-10-15
 
 ### Novidades

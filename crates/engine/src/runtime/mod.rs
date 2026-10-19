@@ -257,8 +257,10 @@ impl State {
         state.poll_processes();
         state.active = state.compute_active();
         state.resolved = state.layout();
-        // Now that the keys are known, see which of their apps run and what their settings are.
+        // Now that the keys are known, see which of their apps run, which of
+        // their sites have a tab and what their settings are.
         state.poll_processes();
+        state.poll_sites();
         state.poll_settings();
         state.redraw_screen();
         state
@@ -392,7 +394,10 @@ impl State {
             self.default_keys = None;
             self.sync_keys(device)?;
         }
-        self.drain_events();
+        if self.drain_events() && self.poll_sites() {
+            // An "open site" key's site got its first tab or lost its last: brighten or dim it.
+            self.sync_keys(device)?;
+        }
         let extension = self.browser.is_connected();
         if extension != self.extension {
             self.extension = extension;
@@ -466,20 +471,23 @@ impl State {
         Ok(())
     }
 
-    /// Latest app in front and latest Edge tabs.
-    fn drain_events(&mut self) {
+    /// Latest app in front and latest Edge tabs. True when the tabs changed.
+    fn drain_events(&mut self) -> bool {
         while let Ok(focused) = self.foreground.try_recv() {
             if focused != self.context.focused {
                 self.context.focused = focused;
                 self.status_dirty = true;
             }
         }
+        let mut tabs_changed = false;
         while let Ok(tabs) = self.tabs.try_recv() {
             if tabs != self.context.tabs {
                 self.context.tabs = tabs;
                 self.status_dirty = true;
+                tabs_changed = true;
             }
         }
+        tabs_changed
     }
 
     /// Only the processes that "open" rules and "open app" keys watch, so
@@ -493,13 +501,7 @@ impl State {
             .filter(|r| r.enabled && r.mode == RuleMode::Open)
             .filter_map(Rule::process)
             .collect();
-        // Both faces of a two-state key, so a press never shows a stale state.
-        let key_apps: HashSet<String> = self
-            .keys_in_view()
-            .flat_map(|key| [key.action.as_ref(), key.toggle.as_ref().and_then(|t| t.action.as_ref())])
-            .flatten()
-            .filter_map(Action::watched_process)
-            .collect();
+        let key_apps: HashSet<String> = self.actions_in_view().filter_map(Action::watched_process).collect();
         let running = if rule_apps.is_empty() && key_apps.is_empty() { HashSet::new() } else { self.processes.running() };
         let rules_running: HashSet<String> = running.iter().filter(|p| rule_apps.contains(*p)).cloned().collect();
         let apps_running: HashSet<String> = running.into_iter().filter(|p| key_apps.contains(p)).collect();
@@ -511,6 +513,23 @@ impl State {
             return false;
         }
         self.live.apps_running = apps_running;
+        true
+    }
+
+    /// Which sites of "open site" keys have a tab in Edge, as the extension
+    /// reports them: none without it (Edge closed too), like site rules.
+    /// True when one got its first tab or lost its last.
+    fn poll_sites(&mut self) -> bool {
+        let tabs = &self.context.tabs.open;
+        let sites_open: HashSet<String> = self
+            .actions_in_view()
+            .filter_map(Action::watched_site)
+            .filter(|site| tabs.iter().any(|tab| site_matches(site, &tab.url)))
+            .collect();
+        if sites_open == self.live.sites_open {
+            return false;
+        }
+        self.live.sites_open = sites_open;
         true
     }
 

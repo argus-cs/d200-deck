@@ -57,7 +57,7 @@ O layout padrão e cada regra têm o seu editor. Numa regra, as teclas que vêm 
 - **Cores** de fundo, ícone, texto e borda, em cada tecla.
 - **Ações:** atalho de teclado, abrir app, arquivo, pasta ou site, rodar comando, digitar texto e mídia (play/pause, faixa, volume).
 - **Dois estados:** cada toque alterna entre duas aparências, como câmera ligada e desligada.
-- Teclas que **abrem um app** ficam escurecidas enquanto ele está fechado.
+- Teclas que **abrem um app** ficam escurecidas enquanto ele está fechado, e as que **abrem um site**, enquanto nenhuma aba dele estiver aberta no Edge (com a extensão).
 
 As coleções do Iconify são baixadas só quando você as abre, e o ícone escolhido fica salvo no PC: o D200 não precisa de internet.
 

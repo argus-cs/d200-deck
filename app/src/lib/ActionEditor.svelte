@@ -7,6 +7,7 @@
     SETTINGS,
     newAction,
     opensApp,
+    opensSite,
     settingInfo,
     type Action,
     type EdgePage,
@@ -116,6 +117,18 @@
     if (action?.type === 'open') action.watch = on ? undefined : false;
   }
 
+  /** What the dimming option says, for targets the key can follow. */
+  function watchText(target: string): { title: string; hint: string } | null {
+    if (opensApp(target)) return { title: 'Escurecer a tecla enquanto o app estiver fechado', hint: 'Quando o app abre, a tecla volta à cor normal.' };
+    if (opensSite(target)) {
+      return {
+        title: 'Escurecer a tecla enquanto o site não estiver aberto',
+        hint: 'Com uma aba do site aberta no Edge, a tecla volta à cor normal. Precisa da extensão do Edge.',
+      };
+    }
+    return null;
+  }
+
   async function chooseFile() {
     // The file dialog leaves the window usable: the path goes to the action it
     // was picked for, even if another key shows by then.
@@ -182,6 +195,7 @@
     <span class="muted small">Combinações com Win (Win+G, Win+D…) o Windows não deixa gravar: digite no campo, como Win+G.</span>
   </div>
 {:else if action?.type === 'open'}
+  {@const watch = watchText(action.target)}
   <div class="field">
     <label class="name" for={`${id}-target`}>App, arquivo, pasta ou endereço</label>
     <input id={`${id}-target`} class="mono" type="text" bind:value={action.target} placeholder="Ex.: spotify.exe ou https://…" />
@@ -218,12 +232,12 @@
     {#if pickError}<span class="error-text small">{pickError}</span>{/if}
     <label class="name" for={`${id}-args`}>Argumentos (opcional)</label>
     <input id={`${id}-args`} class="mono" type="text" bind:value={action.args} />
-    {#if opensApp(action.target)}
+    {#if watch}
       <label class="check">
         <input type="checkbox" checked={action.watch !== false} onchange={(e) => setWatch(e.currentTarget.checked)} />
         <span>
-          <span>Escurecer a tecla enquanto o app estiver fechado</span>
-          <span class="muted small">Quando o app abre, a tecla volta à cor normal.</span>
+          <span>{watch.title}</span>
+          <span class="muted small">{watch.hint}</span>
         </span>
       </label>
     {/if}

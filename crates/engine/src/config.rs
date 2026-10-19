@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::actions::parse_hotkey;
 use crate::icons;
+use crate::rules::host_of;
 use crate::system::{self, Kind, Setting, Switch};
 
 /// Keys are numbered like on the device: 1 to 13, and 14 for the status window.
@@ -275,6 +276,21 @@ impl Action {
         }
     }
 
+    /// The site an "open" action goes to, when it opens a web page: its
+    /// domain, as a site rule would have it, so its key can show whether Edge
+    /// has a tab of the site open (any page of it, not just this one).
+    pub fn watched_site(&self) -> Option<String> {
+        let Action::Open { target, watch: true, .. } = self else {
+            return None;
+        };
+        let target = target.trim().trim_matches('"');
+        let web = ["http://", "https://"].iter().any(|scheme| target.get(..scheme.len()).is_some_and(|s| s.eq_ignore_ascii_case(scheme)));
+        if !web {
+            return None;
+        }
+        host_of(target).filter(|host| !host.is_empty())
+    }
+
     /// The Windows setting a "system" action changes, when it has a state
     /// to show on the key (Bluetooth on, this audio output chosen…).
     pub fn watched_setting(&self) -> Option<SettingId> {
@@ -448,7 +464,8 @@ pub enum Action {
         target: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         args: Option<String>,
-        /// For apps: the key dims while the app is not running.
+        /// For apps and web pages: the key dims while the app is not
+        /// running, or while Edge has no tab of the site.
         #[serde(default = "enabled_by_default", skip_serializing_if = "is_true")]
         watch: bool,
     },
@@ -878,6 +895,19 @@ mod tests {
         assert_eq!(off.watched_process(), None);
         let json: Action = serde_json::from_str(r#"{ "type": "open", "target": "a.exe" }"#).unwrap();
         assert_eq!(json, open("a.exe"), "watching is on unless turned off");
+    }
+
+    #[test]
+    fn open_actions_know_which_site_to_watch() {
+        let open = |target: &str| Action::Open { target: target.into(), args: None, watch: true };
+        assert_eq!(open("https://www.YouTube.com/watch?v=1").watched_site().as_deref(), Some("youtube.com"));
+        assert_eq!(open(" HTTP://redmine.example.com:8080/my/page ").watched_site().as_deref(), Some("redmine.example.com"));
+        assert_eq!(open(r#""https://gitlab.example.com/""#).watched_site().as_deref(), Some("gitlab.example.com"));
+        for not_a_site in ["https://", "spotify:", "msedge.exe", "file:///C:/pagina.html", "youtube.com", r"C:\Users\eu\relatorio.pdf"] {
+            assert_eq!(open(not_a_site).watched_site(), None, "{not_a_site}");
+        }
+        let off = Action::Open { target: "https://youtube.com".into(), args: None, watch: false };
+        assert_eq!(off.watched_site(), None);
     }
 
     #[test]

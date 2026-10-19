@@ -1,6 +1,6 @@
 //! What each key shows and does: the faces of two-state keys, states that
-//! change on their own (apps running, Windows settings), folders, the images
-//! sent to the device, and key presses.
+//! change on their own (apps running, sites open in Edge, Windows settings),
+//! folders, the images sent to the device, and key presses.
 
 use super::*;
 
@@ -25,6 +25,9 @@ pub(super) struct Live {
     pub(super) toggled: HashSet<ToggleId>,
     /// Running apps that "open app" keys start (lowercase exe names).
     pub(super) apps_running: HashSet<String>,
+    /// Sites that "open site" keys go to with a tab open in Edge (domains).
+    /// Without the extension, Edge closed included, none.
+    pub(super) sites_open: HashSet<String>,
     /// Windows settings keys show, as last read (`None`: not on this PC).
     pub(super) settings: HashMap<SettingId, Option<bool>>,
 }
@@ -48,10 +51,14 @@ impl Live {
         }
     }
 
-    /// Darkened: an "open app" key whose app is closed, a setting this PC
-    /// lacks, or a setting that is off on a key with no second face for it.
+    /// Darkened: an "open app" key whose app is closed, an "open site" key
+    /// whose site has no tab in Edge, a setting this PC lacks, or a setting
+    /// that is off on a key with no second face for it.
     pub(super) fn dim(&self, key: &Key, face: &Face) -> bool {
-        let closed = face.action.and_then(Action::watched_process).is_some_and(|process| !self.apps_running.contains(&process));
+        let closed = face.action.is_some_and(|action| {
+            action.watched_process().is_some_and(|process| !self.apps_running.contains(&process))
+                || action.watched_site().is_some_and(|site| !self.sites_open.contains(&site))
+        });
         let setting = match self.setting(key) {
             Some(None) => true,
             Some(Some(false)) => key.toggle.is_none(),
@@ -90,6 +97,12 @@ impl State {
         layers.flat_map(|key| std::iter::once(key).chain(key.folder.iter().flat_map(|f| f.keys.values()))).chain(open.into_iter().flatten())
     }
 
+    /// The actions of `keys_in_view`, both faces of two-state keys, so a
+    /// press never shows a stale state.
+    pub(super) fn actions_in_view(&self) -> impl Iterator<Item = &Action> {
+        self.keys_in_view().flat_map(|key| [key.action.as_ref(), key.toggle.as_ref().and_then(|t| t.action.as_ref())]).flatten()
+    }
+
     /// What each key does now: the open folder's keys, the default layout a
     /// hold on the visor put up, or the rule layers'.
     pub(super) fn layout(&self) -> BTreeMap<u8, Slot> {
@@ -125,6 +138,8 @@ impl State {
         }
         self.resolved = self.layout();
         self.read_new_settings();
+        // Keys that just came up (a rule, a folder) may go to a site.
+        self.poll_sites();
         // A rule with its own visor may have started or stopped.
         self.redraw_screen();
         self.status_dirty = true;
@@ -376,6 +391,18 @@ mod tests {
         let plain = bluetooth_key(false);
         live.settings.insert(id, Some(false));
         assert!(live.dim(&plain, &face(&plain, false)));
+    }
+
+    #[test]
+    fn site_keys_dim_without_a_tab_of_the_site() {
+        let open = |target: &str, watch| Action::Open { target: target.into(), args: None, watch };
+        let redmine = Key { action: Some(open("https://redmine.example.com/my/page", true)), ..Key::default() };
+        let mut live = Live::default();
+        assert!(live.dim(&redmine, &face(&redmine, false)), "no tab (or no extension): dimmed");
+        live.sites_open.insert("redmine.example.com".into());
+        assert!(!live.dim(&redmine, &face(&redmine, false)));
+        let unwatched = Key { action: Some(open("https://youtube.com/", false)), ..Key::default() };
+        assert!(!live.dim(&unwatched, &face(&unwatched, false)), "watching turned off");
     }
 
     #[test]

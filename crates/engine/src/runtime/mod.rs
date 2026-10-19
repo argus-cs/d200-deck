@@ -111,7 +111,8 @@ impl Engine {
     }
 }
 
-/// Starts the engine on its own thread. `on_status` and `on_screen` run on
+/// Starts the engine on its own thread. `bundled_addons` is the folder of the
+/// addons that came with the app, if any. `on_status` and `on_screen` run on
 /// that thread: the whole status when anything in it changes, or only the
 /// visor when nothing else did (every second or two, with a clock or the PC's
 /// usage). `on_activity` also runs on action threads, to report failures.
@@ -119,13 +120,14 @@ impl Engine {
 /// the device's keys are read on the same thread, in between.
 pub fn spawn(
     config_path: PathBuf,
+    bundled_addons: Option<PathBuf>,
     on_status: impl Fn(&Status) + Send + 'static,
     on_screen: impl Fn(&ScreenStatus) + Send + 'static,
     on_activity: impl Fn(&Activity) + Send + Sync + 'static,
 ) -> Engine {
     let (tx, rx) = channel();
     let (browser, tabs) = browser::start();
-    let host = addons::Host::new(&Config::dir_of(&config_path));
+    let host = addons::Host::new(&Config::dir_of(&config_path), bundled_addons);
     let engine = Engine { commands: tx, browser: browser.clone(), addons: host.handle() };
     std::thread::spawn(move || {
         State::new(config_path, rx, Box::new(on_status), Box::new(on_screen), Arc::new(on_activity), browser, tabs, host).run()
@@ -137,7 +139,7 @@ pub fn spawn(
 pub fn run(config_path: PathBuf) -> Result<()> {
     let (_commands, rx) = channel();
     let (browser, tabs) = browser::start();
-    let host = addons::Host::new(&Config::dir_of(&config_path));
+    let host = addons::Host::new(&Config::dir_of(&config_path), None);
     State::new(config_path, rx, Box::new(|_| {}), Box::new(|_| {}), Arc::new(|_| {}), browser, tabs, host).run();
     Ok(())
 }

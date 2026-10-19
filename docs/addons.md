@@ -13,6 +13,13 @@ Addons trazem ações novas para as teclas do D200 Deck: jogos, apps e serviços
 
 Um addon novo chega sempre desligado.
 
+### O addon da Steam
+
+O D200 Deck já vem com um addon: o **Steam**. Ele começa ligado se a Steam estiver instalada no PC; depois, vale o que você escolher na página **Addons**. Ele tem duas ações:
+
+- **Abrir jogo**: escolha o jogo numa lista dos jogos instalados, e a tecla ganha a capa e o nome dele. A tecla acende enquanto o jogo está aberto e escurece se ele for desinstalado. Com o jogo já aberto, um toque traz a janela dele para a frente (ou não faz nada, se você escolher).
+- **Abrir a Steam**: abre a biblioteca, os amigos, os downloads, a loja ou as configurações da Steam.
+
 ### Usar numa tecla
 
 No editor da tecla, em **Ação**, as ações dos addons ligados ficam no grupo **Addons** (como "Contador › Contar"). Os campos de cada ação aparecem logo abaixo, e as listas que o addon preenche (os jogos instalados, por exemplo) têm um botão para atualizar.
@@ -102,6 +109,7 @@ Uma opção de lista pode sugerir o visual da tecla: `short` é um texto curto p
 - Se o programa fechar, o app abre de novo depois de 1, 2, 4 e 8 segundos. Na quinta vez seguida (cada uma com menos de 30 s rodando), ele desiste e mostra a última linha do stderr.
 - Programas que o addon abre não fazem parte dele: continuam abertos quando o addon ou o app fecham.
 - Mudou o `addon.json`? **Procurar de novo** na página **Addons** reabre o addon com o manifesto novo.
+- Os addons que vêm com o app ficam na pasta de instalação (`addons`). Um addon seu com o mesmo `id` toma o lugar do que veio com o app, o que serve para testar uma versão nova. Só eles podem usar `$app` no `run`, que é o próprio `d200-deck.exe`: o da Steam roda como `d200-deck.exe --addon steam`.
 
 ### O protocolo
 

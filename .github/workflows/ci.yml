@@ -56,8 +56,8 @@ jobs:
         working-directory: app
         run: npm ci
 
-      - name: Test the driver and the engine
-        run: cargo test -p d200 -p deck-engine
+      - name: Test the driver, the engine and the Steam addon
+        run: cargo test -p d200 -p deck-engine -p steam-addon
 
       # The tools (probe, deckd, try-*) have no tests, so cargo test skips them.
       - name: Check the tools

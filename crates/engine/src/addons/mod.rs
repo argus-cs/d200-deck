@@ -219,6 +219,8 @@ struct Proc {
 pub struct AddonStatus {
     /// The manifest's id; empty when it didn't load.
     pub id: String,
+    /// It came with the app.
+    pub bundled: bool,
     /// The folder's name, which also tells apart addons whose manifest didn't load.
     pub folder: String,
     pub path: String,
@@ -252,6 +254,8 @@ pub enum AddonState {
 /// Lives on the engine's thread.
 pub struct Host {
     dir: PathBuf,
+    /// The addons that came with the app, if it has any.
+    bundled: Option<PathBuf>,
     config_dir: PathBuf,
     found: Vec<Found>,
     enabled: Vec<String>,
@@ -269,11 +273,13 @@ pub struct Host {
 }
 
 impl Host {
-    /// Finds the addons beside config.json; none runs until `apply` enables it.
-    pub fn new(config_dir: &Path) -> Self {
+    /// Finds the addons beside config.json and those that came with the app
+    /// (`bundled`, a folder of addon folders); none runs until `apply` enables it.
+    pub fn new(config_dir: &Path, bundled: Option<PathBuf>) -> Self {
         let (events_tx, events) = channel();
         let mut host = Self {
             dir: folder(config_dir),
+            bundled,
             config_dir: config_dir.to_path_buf(),
             found: Vec::new(),
             enabled: Vec::new(),
@@ -297,7 +303,7 @@ impl Host {
     /// Reads the addons folder again: new addons show, removed ones stop and
     /// changed ones start again with their new manifest.
     pub fn rescan(&mut self) {
-        self.found = manifest::scan(&self.dir);
+        self.found = manifest::scan(&self.dir, self.bundled.as_deref());
         let installed = self
             .found
             .iter()
@@ -353,7 +359,7 @@ impl Host {
         let Some(found) = self.found.iter().find(|found| found.manifest.as_ref().is_ok_and(|m| m.id == id)) else {
             return;
         };
-        let (Ok(manifest), folder) = (found.manifest.clone(), found.folder.clone()) else {
+        let (Ok(manifest), folder, bundled) = (found.manifest.clone(), found.folder.clone(), found.bundled) else {
             return;
         };
         self.generation += 1;
@@ -369,7 +375,7 @@ impl Host {
             last_words: Arc::default(),
             stderr_done: None,
         };
-        let spawned = spawn(&manifest, &folder, &data, proc.generation, &self.handle, &self.events_tx, &proc.last_words);
+        let spawned = spawn(&manifest, (&folder, bundled), &data, proc.generation, &self.handle, &self.events_tx, &proc.last_words);
         match spawned {
             Ok((child, queue, stderr_done)) => {
                 info!("addon {id} rodando ({})", manifest.command_line());
@@ -569,6 +575,7 @@ impl Host {
                 match &found.manifest {
                     Err(error) => AddonStatus {
                         id: String::new(),
+                        bundled: found.bundled,
                         name: folder.clone(),
                         folder,
                         path,
@@ -592,6 +599,7 @@ impl Host {
                         };
                         AddonStatus {
                             id: manifest.id.clone(),
+                            bundled: found.bundled,
                             folder,
                             path,
                             name: manifest.name.clone(),
@@ -638,14 +646,14 @@ type Spawned = (Child, SyncSender<String>, Receiver<()>);
 /// Starts the addon's program in its folder, with a thread for each pipe.
 fn spawn(
     manifest: &Manifest,
-    folder: &Path,
+    (folder, bundled): (&Path, bool),
     data: &Path,
     generation: u64,
     handle: &Addons,
     events: &Sender<Event>,
     last_words: &Arc<Mutex<Option<String>>>,
 ) -> Result<Spawned> {
-    let (program, args) = manifest.command(folder)?;
+    let (program, args) = manifest.command(folder, bundled)?;
     std::fs::create_dir_all(data).with_context(|| format!("a pasta de dados {} não foi criada", data.display()))?;
     let mut command = Command::new(&program);
     command.args(args).current_dir(folder).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -827,7 +835,7 @@ mod tests {
     fn the_example_addon_runs_and_answers() {
         let example: Files = &[("main.js", include_str!("../../../../docs/addons/exemplo/main.js"))];
         let dir = config_dir("example", &[("exemplo", include_str!("../../../../docs/addons/exemplo/addon.json"), example)]);
-        let mut host = Host::new(&dir);
+        let mut host = Host::new(&dir, None);
         let addons = host.handle();
         assert_eq!(host.statuses()[0].state, AddonState::Off, "found, but off until enabled");
         assert!(addons.press("exemplo.contador", "count", &Settings::new()).unwrap_err().to_string().contains("não está rodando"));
@@ -889,7 +897,7 @@ mod tests {
                          "run": ["node", "-e", "console.error('sem conexão'); process.exit(3)"] }"#;
         let missing = r#"{ "id": "nao.abre", "name": "Não abre", "version": "1", "api": 1, "run": ["programa-que-nao-existe-em-lugar-nenhum"] }"#;
         let dir = config_dir("restart", &[("a", quits, &[]), ("b", missing, &[]), ("c", "{", &[])]);
-        let mut host = Host::new(&dir);
+        let mut host = Host::new(&dir, None);
         host.apply(&["sai.logo".to_string(), "nao.abre".to_string(), "nao.instalado".to_string()]);
         wait_for(&mut host, "o addon fechar", |host| host.statuses()[0].state == AddonState::Restarting);
         let statuses = host.statuses();
@@ -916,7 +924,7 @@ mod tests {
         std::fs::create_dir_all(&data).unwrap();
         std::fs::write(data.join("capa.svg"), "").unwrap();
         std::fs::write(dir.join("fora.png"), "").unwrap();
-        let host = Host::new(&dir);
+        let host = Host::new(&dir, None);
         let addons = host.handle();
         assert!(addons.image("com.imagens", "a.png").unwrap().ends_with("a.png"));
         assert!(addons.image("com.imagens", &data.join("capa.svg").display().to_string()).is_ok());

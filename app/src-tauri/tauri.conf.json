@@ -25,7 +25,8 @@
     "shortDescription": "Teclas dinâmicas para o Ulanzi D200",
     "resources": {
       "../../extension-edge/manifest.json": "extension-edge/manifest.json",
-      "../../extension-edge/background.js": "extension-edge/background.js"
+      "../../extension-edge/background.js": "extension-edge/background.js",
+      "../../crates/steam/addon/addon.json": "addons/steam/addon.json"
     },
     "windows": {
       "nsis": { "installMode": "currentUser" }

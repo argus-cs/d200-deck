@@ -43,7 +43,7 @@
   function toggle(addon: AddonStatus) {
     if (isOn(addon)) {
       enable(addon.id, false);
-    } else if (trusted.includes(addon.id)) {
+    } else if (addon.bundled || trusted.includes(addon.id)) {
       enable(addon.id, true);
     } else {
       confirming = addon.folder;
@@ -99,7 +99,7 @@
     {#each list as addon (addon.folder)}
       {@const invalid = addon.state === 'invalid'}
       {@const on = !invalid && isOn(addon)}
-      {@const isNew = !invalid && !on && !trusted.includes(addon.id)}
+      {@const isNew = !invalid && !on && !addon.bundled && !trusted.includes(addon.id)}
       <section class="addon" class:invalid class:asking={confirming === addon.folder}>
         <div class="head">
           <div class="tile" class:bad={invalid}><Icon name={invalid ? 'alert' : 'puzzle'} size={24} /></div>
@@ -108,7 +108,11 @@
               <h2 class:mono={invalid}>{invalid ? addon.folder : addon.name}</h2>
               {#if !invalid}
                 <span class="mono muted small">{addon.version}</span>
-                {#if addon.author}<span class="muted small">{addon.author}</span>{/if}
+                {#if addon.bundled}
+                  <span class="muted small">vem com o D200 Deck</span>
+                {:else if addon.author}
+                  <span class="muted small">{addon.author}</span>
+                {/if}
               {/if}
               {#if isNew}<span class="badge">Novo</span>{/if}
             </div>

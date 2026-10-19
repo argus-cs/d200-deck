@@ -61,6 +61,8 @@ export type AddonState = 'off' | 'running' | 'restarting' | 'stopped' | 'invalid
 export interface AddonStatus {
   /** Empty when its addon.json didn't load. */
   id: string;
+  /** It came with the app: it is trusted, no question asked to turn it on. */
+  bundled: boolean;
   /** The folder's name, which also tells apart addons that didn't load. */
   folder: string;
   path: string;

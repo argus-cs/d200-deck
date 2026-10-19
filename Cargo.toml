@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/d200", "crates/engine", "app/src-tauri"]
+members = ["crates/d200", "crates/engine", "crates/steam", "app/src-tauri"]
 
 [workspace.package]
 version = "0.3.11"
@@ -18,6 +18,9 @@ image = { version = "0.25", default-features = false }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+steam-addon = { path = "crates/steam" }
+# The same version Tauri uses, so it is compiled once (features per crate).
+windows = "0.62"
 
 # The installer carries one binary: whole-program optimization makes it
 # smaller, for a longer build. Not panic = "abort": a panic on an action

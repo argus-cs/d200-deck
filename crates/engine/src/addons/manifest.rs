@@ -15,6 +15,8 @@ use crate::icons;
 /// The protocol version this app speaks; an addon made for a newer one is refused.
 pub const API_VERSION: u32 = 1;
 pub const MANIFEST: &str = "addon.json";
+/// In `run`, D200 Deck's own executable (see `Manifest::command`).
+pub const APP: &str = "$app";
 /// A manifest is a few KB: a bigger file is not one.
 const MAX_MANIFEST: u64 = 256 * 1024;
 
@@ -32,6 +34,7 @@ pub struct Manifest {
     pub api: u32,
     /// The program and its arguments. A program with a path is relative to the
     /// addon's folder; a bare name ("node") is looked for there, then in PATH.
+    /// `$app` is D200 Deck itself, for the addons that come with it.
     pub run: Vec<String>,
     #[serde(default)]
     pub actions: Vec<ActionDef>,
@@ -157,10 +160,17 @@ impl Manifest {
         Ok(())
     }
 
-    /// The program to start and its arguments.
-    pub fn command(&self, folder: &Path) -> Result<(PathBuf, &[String])> {
+    /// The program to start and its arguments. `bundled`: the addon came with
+    /// the app, so `$app` may start the app's own executable.
+    pub fn command(&self, folder: &Path, bundled: bool) -> Result<(PathBuf, &[String])> {
         let program = self.run[0].trim();
         let args = &self.run[1..];
+        if program == APP {
+            if !bundled {
+                bail!("{APP} só vale para os addons que vêm com o D200 Deck");
+            }
+            return Ok((std::env::current_exe().context("o executável do app não foi achado")?, args));
+        }
         if program.contains(['\\', '/']) {
             // Relative to the folder, or an absolute path (join keeps it).
             let path = folder.join(program);
@@ -253,11 +263,24 @@ pub fn inside(path: &Path) -> bool {
 pub struct Found {
     pub folder: PathBuf,
     pub manifest: Result<Manifest, String>,
+    /// It came with the app (in its install folder), not from the person.
+    pub bundled: bool,
+}
+
+/// The addons that came with the app (`bundled`), then the person's, from
+/// `dir`. One of theirs with the id of a bundled one takes its place: a newer
+/// version, or one being worked on.
+pub fn scan(dir: &Path, bundled: Option<&Path>) -> Vec<Found> {
+    let own = scan_dir(dir, false);
+    let ids: HashSet<&str> = own.iter().filter_map(|found| found.manifest.as_ref().ok()).map(|m| m.id.as_str()).collect();
+    let builtin = bundled.map(|dir| scan_dir(dir, true)).unwrap_or_default();
+    let builtin = builtin.into_iter().filter(|found| found.manifest.as_ref().map_or(true, |m| !ids.contains(m.id.as_str())));
+    builtin.collect::<Vec<_>>().into_iter().chain(own).collect()
 }
 
 /// Every folder in `dir`, in name order. Two folders with one id: the
 /// second is refused, since keys find their addon by id.
-pub fn scan(dir: &Path) -> Vec<Found> {
+fn scan_dir(dir: &Path, bundled: bool) -> Vec<Found> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -277,7 +300,7 @@ pub fn scan(dir: &Path) -> Vec<Found> {
                     }
                 }
             });
-            Found { folder, manifest }
+            Found { folder, manifest, bundled }
         })
         .collect()
 }
@@ -362,12 +385,15 @@ mod tests {
         std::fs::write(folder.join("tool.exe"), b"").unwrap();
         std::fs::write(folder.join("bin").join("run.cmd"), b"").unwrap();
         let with = |run: &str| Manifest { run: vec![run.into(), "x".into()], ..manifest(MINIMAL).unwrap() };
-        let (program, args) = with("tool").command(&folder).map(|(p, a)| (p, a.to_vec())).unwrap();
+        let (program, args) = with("tool").command(&folder, false).map(|(p, a)| (p, a.to_vec())).unwrap();
         assert_eq!(program, folder.join("tool.exe"));
         assert_eq!(args, ["x"]);
-        assert_eq!(with("bin/run.cmd").command(&folder).unwrap().0, folder.join("bin/run.cmd"));
-        assert!(with("bin/nada.cmd").command(&folder).is_err());
-        assert!(with("programa-que-nao-existe-em-lugar-nenhum").command(&folder).is_err());
+        assert_eq!(with("bin/run.cmd").command(&folder, false).unwrap().0, folder.join("bin/run.cmd"));
+        assert!(with("bin/nada.cmd").command(&folder, false).is_err());
+        assert!(with("programa-que-nao-existe-em-lugar-nenhum").command(&folder, false).is_err());
+        // The app itself, only for the addons that come with it.
+        assert_eq!(with("$app").command(&folder, true).unwrap().0, std::env::current_exe().unwrap());
+        assert!(with("$app").command(&folder, false).unwrap_err().to_string().contains("só vale"));
     }
 
     #[test]
@@ -380,13 +406,27 @@ mod tests {
                 std::fs::write(dir.join(folder).join(MANIFEST), format!("\u{feff}{json}")).unwrap();
             }
         }
-        let found = scan(&dir);
+        let found = scan(&dir, None);
         let names: Vec<String> = found.iter().map(|f| folder_name(&f.folder)).collect();
         assert_eq!(names, ["a", "b", "c", "d"]);
         assert_eq!(found[0].manifest.as_ref().unwrap().id, "exemplo.contador", "a BOM is fine");
         assert!(found[1].manifest.as_ref().unwrap_err().contains("a pasta a já tem"));
         assert!(found[2].manifest.as_ref().unwrap_err().contains("falta o addon.json"));
         assert!(found[3].manifest.as_ref().unwrap_err().contains("não é válido"));
-        assert!(scan(&dir.join("nao-existe")).is_empty());
+        assert!(scan(&dir.join("nao-existe"), None).is_empty());
+    }
+
+    #[test]
+    fn the_persons_addon_takes_the_place_of_a_bundled_one() {
+        let dir = std::env::temp_dir().join("deck-engine-addon-bundled-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let other = MINIMAL.replace("exemplo.contador", "outro.addon");
+        for (folder, json) in [("bundled/contador", MINIMAL), ("bundled/outro", other.as_str()), ("own/meu-contador", MINIMAL)] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+            std::fs::write(dir.join(folder).join(MANIFEST), json).unwrap();
+        }
+        let found = scan(&dir.join("own"), Some(&dir.join("bundled")));
+        let names: Vec<(String, bool)> = found.iter().map(|f| (folder_name(&f.folder), f.bundled)).collect();
+        assert_eq!(names, [("outro".to_string(), true), ("meu-contador".to_string(), false)]);
     }
 }

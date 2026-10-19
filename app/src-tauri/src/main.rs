@@ -21,6 +21,9 @@ use tauri_plugin_window_state::{StateFlags, WindowExt};
 
 /// Passed by the "start with Windows" entry: start in the tray, no window.
 const HIDDEN_FLAG: &str = "--hidden";
+/// Passed by the engine to run an addon that lives in this executable
+/// (`$app` in its addon.json): `--addon steam`.
+const ADDON_FLAG: &str = "--addon";
 const MAIN_WINDOW: &str = "main";
 
 #[derive(Default)]
@@ -357,6 +360,15 @@ fn free_name(folder: &Path, stem: &str, extension: &str) -> PathBuf {
     candidate
 }
 
+/// `\\?\C:\…` (how Tauri hands the install folder) as `C:\…`, which reads
+/// better where the window shows it. A network path keeps its prefix.
+fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 fn config_dir() -> PathBuf {
     Config::dir_of(&Config::default_path())
 }
@@ -397,9 +409,53 @@ fn window_state_flags() -> StateFlags {
     StateFlags::all() - StateFlags::VISIBLE
 }
 
+/// Runs the addon named after `--addon`, if asked to, and returns its exit
+/// code. No window, tray or single-instance check: the engine that started
+/// it talks to it over stdin and stdout, and its stderr goes to the log.
+fn run_addon() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    let at = args.iter().position(|arg| arg == ADDON_FLAG)?;
+    Some(match args.get(at + 1).map(String::as_str) {
+        Some("steam") => steam_addon::run(),
+        other => {
+            eprintln!("addon desconhecido: {other:?}");
+            2
+        }
+    })
+}
+
+/// The Steam addon comes with the app and starts enabled where Steam is
+/// installed, the first time the app meets it; after that the person decides.
+/// Its data folder marks that the app already did (it exists once it ran).
+fn enable_steam_addon() {
+    let marker = addons::data_folder(&config_dir(), steam_addon::ID);
+    if marker.exists() || !steam_addon::installed() {
+        return;
+    }
+    let enabled = (|| -> anyhow::Result<()> {
+        let path = Config::default_path();
+        let mut config = Config::load_or_create(&path)?;
+        if !config.addons.iter().any(|id| id == steam_addon::ID) {
+            config.addons.push(steam_addon::ID.to_string());
+            config.save(&path)?;
+        }
+        std::fs::create_dir_all(&marker)?;
+        Ok(())
+    })();
+    match enabled {
+        Ok(()) => log::info!("addon da Steam ligado: a Steam está instalada"),
+        // A config with an error: the next start tries again.
+        Err(e) => log::warn!("o addon da Steam não foi ligado: {e:#}"),
+    }
+}
+
 fn main() {
+    if let Some(code) = run_addon() {
+        std::process::exit(code);
+    }
     // Also to a file beside config.json: the installed app has no console.
     deck_engine::logging::init(&config_dir());
+    enable_steam_addon();
     let hidden = std::env::args().any(|arg| arg == HIDDEN_FLAG);
 
     let app = tauri::Builder::default()
@@ -414,8 +470,11 @@ fn main() {
             let handle = app.handle().clone();
             let screen_handle = app.handle().clone();
             let activity_handle = app.handle().clone();
+            // The addons that come with the app, in its install folder.
+            let bundled = app.path().resource_dir().ok().map(|dir| plain_path(dir).join("addons"));
             let engine = runtime::spawn(
                 Config::default_path(),
+                bundled,
                 move |status| {
                     *handle.state::<DeckState>().status.lock().unwrap() = status.clone();
                     let _ = handle.emit("status", status);

@@ -1,0 +1,53 @@
+{
+  "id": "d200deck.steam",
+  "name": "Steam",
+  "version": "1.0.0",
+  "author": "D200 Deck",
+  "description": "Abre jogos e páginas da Steam. A tecla de um jogo acende enquanto ele está aberto.",
+  "api": 1,
+  "run": ["$app", "--addon", "steam"],
+  "actions": [
+    {
+      "id": "launch",
+      "name": "Abrir jogo",
+      "description": "Abre o jogo pela Steam. A tecla acende enquanto ele está aberto e escurece se ele for desinstalado. Escolhendo o jogo, a tecla ganha a capa e o nome dele.",
+      "icon": "gamepad",
+      "state": true,
+      "fields": [
+        { "id": "game", "type": "select", "label": "Jogo", "dynamic": true, "hint": "Os jogos instalados nesta Steam." },
+        {
+          "id": "when_running",
+          "type": "select",
+          "label": "Se o jogo já estiver aberto",
+          "default": "front",
+          "options": [
+            { "value": "front", "label": "Trazer para a frente" },
+            { "value": "nothing", "label": "Não fazer nada" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "open",
+      "name": "Abrir a Steam",
+      "description": "Abre uma página da Steam.",
+      "icon": "gamepad",
+      "label": "Steam",
+      "fields": [
+        {
+          "id": "page",
+          "type": "select",
+          "label": "Página",
+          "default": "games",
+          "options": [
+            { "value": "games", "label": "Biblioteca", "short": "Biblioteca" },
+            { "value": "friends", "label": "Amigos", "short": "Amigos" },
+            { "value": "downloads", "label": "Downloads", "short": "Downloads" },
+            { "value": "store", "label": "Loja", "short": "Loja" },
+            { "value": "settings", "label": "Configurações", "short": "Ajustes" }
+          ]
+        }
+      ]
+    }
+  ]
+}

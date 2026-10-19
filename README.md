@@ -112,6 +112,8 @@ O visor largo (a tecla 14) mostra relógio, uso do PC (CPU, memória, GPU e rede
 
 Programas de terceiros trazem ações novas para as teclas: um addon pode abrir jogos, controlar um app ou um serviço e mudar o que a tecla mostra (acesa, apagada, um contador). Cada addon é uma pasta em `%APPDATA%\D200Deck\addons`, feito em qualquer linguagem, e só roda depois que você liga na página **Addons**. Na primeira vez, o app mostra quem fez o addon e o que ele vai rodar. As ações aparecem no editor de tecla, no grupo **Addons**, e o visual da tecla continua sendo seu. Como instalar e como fazer o seu: [`docs/addons.md`](docs/addons.md).
 
+O app já vem com o addon da **Steam**, ligado quando a Steam está instalada: uma tecla abre um jogo com a capa dele e acende enquanto ele está aberto, e outra abre a biblioteca, os amigos ou a loja.
+
 ### E mais
 
 - O D200 ao vivo na janela, com cada tecla apertada acendendo.
@@ -205,6 +207,7 @@ O script abre o app em modo de desenvolvimento com um `%APPDATA%` temporário (a
 | --- | --- |
 | `crates/d200` | Driver do protocolo USB do D200 e a ferramenta `probe` |
 | `crates/engine` | Motor: regras, ações, addons, desenho das teclas e do visor, laço com o aparelho, `deckd` (o app sem interface) |
+| `crates/steam` | O addon da Steam, que vem com o app (roda dentro do `d200-deck.exe`) |
 | `app` | App Tauri 2: Rust em `src-tauri`, interface em Svelte 5 + TypeScript em `src` |
 | `extension-edge` | Extensão Manifest V3 que conta ao app quais sites estão abertos |
 | `docs` | Imagens deste README e o script que as refaz; o guia dos addons e o addon de exemplo |

@@ -12,7 +12,7 @@ App para Windows que substitui o Ulanzi Studio no Ulanzi D200 (VID 2207, PID 001
 ## Fluxo de mudanças
 Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR com o job "Testes" verde (ver "Versões e atualizações").
 1. Partir da `main` atualizada (`git switch main && git pull --ff-only`) e criar uma branch em minúsculo: `feature/…`, `fix/…`, `refactor/…`, `docs/…` ou `ci/…`.
-2. Implementar com testes. Antes do commit, rodar `cargo test -p d200 -p deck-engine` e `npm run check` (em `app`), mais `cargo check -p d200-deck` se o app Tauri mudou e `cargo check -p d200 -p deck-engine --bins` se uma ferramenta (`probe`, `deckd`, `try-*`) mudou: elas não têm testes, e o `cargo test` não as compila (`test = false`). O Rust fica em `%USERPROFILE%\.cargo\bin`.
+2. Implementar com testes. Antes do commit, rodar `cargo test -p d200 -p deck-engine -p steam-addon` e `npm run check` (em `app`), mais `cargo check -p d200-deck` se o app Tauri mudou e `cargo check -p d200 -p deck-engine --bins` se uma ferramenta (`probe`, `deckd`, `try-*`) mudou: elas não têm testes, e o `cargo test` não as compila (`test = false`). O Rust fica em `%USERPROFILE%\.cargo\bin`.
 3. Atualizar este arquivo e o `README.md` quando a mudança alterar comportamento, comandos, decisões ou armadilhas.
 4. Commit em inglês, com a mensagem aprovada pelo usuário antes de rodar.
 5. `git push -u origin HEAD:refs/heads/<branch>` (nome em minúsculo explícito) e `gh pr create --base main`, com a descrição (Summary, Changes, Testing) aprovada antes.
@@ -24,6 +24,7 @@ Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR 
 - `crates/d200/src/bin/probe.rs` — ferramenta de validação da Fase 0.
 - `crates/engine/` — motor reaproveitado pelo app Tauri: `config.rs` (JSON em `%APPDATA%\D200Deck\config.json`, teclas numeradas de 1 a 14), `icons.rs` (ícones de traço do protótipo via resvg, ou PNG do usuário), `actions.rs` (atalho, abrir, comando, texto, mídia), `runtime/` (o laço do aparelho: `mod.rs` com conexão, keep-alive de 1 s, contexto, regras, recarga da config e reconexão; sem acesso ao USB (o `HidApi::new` falhou), o motor segue sem o aparelho e tenta de novo a cada 2 s, com o motivo no `Status` (`device_error`) e "Sem acesso ao USB" na janela e na bandeja, onde antes a thread do motor terminava e nada mais funcionava; `keys.rs` com o que cada tecla mostra e faz, pastas e as imagens enviadas só quando mudam; `visor.rs` com o visor, toque e segurar; `status.rs` com o `Status` e a `Activity` que o app recebe), `draw.rs` (as etapas de desenho que teclas, ícones e visor compartilham: SVG para pixels com `svg_options`, PNG, imagem centralizada numa área e cor #RRGGBB), `files.rs` (`write_atomic`: grava ao lado e renomeia por cima, com um nome temporário único por escrita; usado pela config e pelo cache do Iconify), `logging.rs` (log no stderr e em `%APPDATA%\D200Deck\d200deck.log`, que recomeça ao passar de 2 MB, também com o app aberto, guardando o anterior em `d200deck.old.log`; panics de qualquer thread também vão para o log). O app instalado não tem console: sem o arquivo, avisos e quedas do motor se perdiam.
 - `crates/engine/src/addons/` — os addons de terceiros: `manifest.rs` (o `addon.json`), `protocol.rs` (as mensagens) e `mod.rs` (o `Host`, que roda os processos, e o `Addons`, que fala com eles de qualquer thread). Ver "Addons".
+- `crates/steam/` — o addon da Steam, que vem com o app. Ver "Addon da Steam".
 - `crates/engine/src/bin/deckd.rs` — o app sem interface.
 - `crates/engine/src/rules.rs` — quais regras valem e o que cada tecla mostra (lógica pura, testável). `context.rs` — o lado Windows: janela da frente por evento (`SetWinEventHook`), processos a cada 1 s (só os que regras "aberto" observam) e trazer um app para a frente.
 - `crates/engine/src/browser.rs` — WebSocket em `127.0.0.1:47820` para a extensão. Só aceita o Origin exato da nossa extensão (`chrome-extension://` + `EXTENSION_ID`, o formato que o Edge manda, conferido em 2026-10-10): páginas da web e outras extensões são recusadas. E a conexão precisa vir do Edge (`msedge.exe`, o processo de rede dele) rodando com o mesmo usuário do Windows que o app: antes do handshake, o app acha o processo do outro lado pela tabela TCP do Windows (`GetExtendedTcpTable`) e compara o usuário (SID). Fora do navegador o Origin é só texto, e o `127.0.0.1` é de todos os usuários do PC: sem isso, qualquer programa mandando o Origin certo era aceito e, como a conexão mais nova assume, tirava da extensão o canal de pedidos ("trazer a aba", ícone do site). Um antivírus que intercepte conexões locais faria a extensão ser recusada; o log diz de qual processo veio. Mensagens de até 1 MiB, handshake em até 5 s, no máximo 4 conexões.
@@ -120,6 +121,27 @@ Toda mudança, até de documentação, segue este fluxo: a `main` só aceita PR 
   - As listas dinâmicas são pedidas por `addon_options` num `$effect` que só escreve no estado local, nunca na config.
   - Os ícones sugeridos (da ação ou de uma opção de lista) passam por `addon_icon`. Ele aceita um glifo ou um arquivo dentro da pasta do addon ou da pasta de dados dele (`Addons::image`, com `canonicalize`) e copia para `icons\addon-*`.
 - O exemplo `docs/addons/exemplo` (Node, sem dependências) é rodado de verdade pelo teste `the_example_addon_runs_and_answers`, com o `node` do PATH (no CI, o do setup-node).
+- **Addons que vêm com o app** (`Found::bundled`):
+  - Ficam na pasta de recursos (`resource_dir()\addons`, que o `main.rs` passa ao `runtime::spawn`), copiados pelo `bundle.resources` do `tauri.conf.json`. Em desenvolvimento, o Tauri copia para `target\debug`.
+  - Um addon do usuário com o mesmo id toma o lugar do embutido (`manifest::scan`).
+  - Só os embutidos podem usar `$app` no `run`, que é o `current_exe()`.
+  - Aparecem como "vem com o D200 Deck" e ligam sem a pergunta de confiança.
+
+## Addon da Steam (fase B)
+- Fica em `crates/steam` (`steam-addon`) e roda dentro do próprio `d200-deck.exe`: o `addon.json` diz `["$app", "--addon", "steam"]`, e o `main.rs` trata o `--addon` antes de qualquer coisa do Tauri (sem janela, sem bandeja, sem instância única, sem o log do app: o stderr já vai para o log pelo host). Assim o instalador não leva outro executável. O manifesto fica em `crates/steam/addon/addon.json`, e um teste o valida.
+- Começa ligado onde a Steam está instalada, na primeira vez que o app o encontra (`enable_steam_addon` no `main.rs`, decidido em 2026-10-19). A pasta de dados dele (`addon-data\d200deck.steam`) marca que o app já decidiu: depois disso vale a escolha da pessoa. Sem a Steam, nada é gravado, e ele liga quando a Steam aparecer.
+- `library.rs`:
+  - A Steam fica pelo registro (`HKCU\Software\Valve\Steam\SteamPath`; plano B, `HKLM\…\WOW6432Node\…\InstallPath`).
+  - Os jogos vêm de `steamapps\libraryfolders.vdf` e dos `appmanifest_*.acf` de cada biblioteca (bit 4 do `StateFlags` = instalado). Os redistribuíveis (`228980`) ficam de fora.
+  - "Rodando" é `HKCU\Software\Valve\Steam\Apps\<id>\Running`.
+  - A capa é o centro da `library_600x900.jpg` (ou do `header.jpg`) de `appcache\librarycache` (pasta por jogo nas versões novas, `<id>_<nome>` nas antigas), recortado em 196×196 e gravado em `addon-data\d200deck.steam\covers`. Como um PNG ocupa a tecla toda (`icons::render_file`), a capa vira o fundo da tecla, com o texto por cima.
+  - `vdf.rs` lê o formato de texto da Steam.
+- `addon.rs`:
+  - "Abrir jogo" (`launch`, com `state`): `steam://rungameid/<id>`. Com o jogo rodando, traz para a frente a janela de um programa da pasta dele (`context::visible_apps` + `bring_to_front`), ou não faz nada (`when_running: nothing`). Sem janela, a Steam traz o jogo.
+  - "Abrir a Steam" (`open`): `steam://open/<página>`.
+  - A lista de jogos sugere o nome curto e a capa. As capas levam no máximo 2,5 s por pedido (o app espera 5 s); as que faltarem vêm no próximo "Atualizar".
+  - O estado é relido a cada 2 s, e só as mudanças vão ao app.
+  - O acesso ao Windows fica atrás do trait `System`, para os testes usarem uma Steam falsa sem abrir nada.
 
 ## Regras de site (Fase 3)
 - `"when": { "site": "youtube.com" }` casa o domínio e os subdomínios; com `/` ou `*` vira curinga sobre "domínio/caminho" (`github.com/*/pulls`), valendo também para o que estiver abaixo. Esquema, `www.`, porta, query e fragmento são ignorados.

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import AddonsPage from './lib/AddonsPage.svelte';
+  import { addons, navigation } from './lib/addons.svelte';
   import { getStatus, glyphs as loadGlyphs, onScreen, onStatus, openConfig } from './lib/api';
   import Banners from './lib/Banners.svelte';
   import { ConfigEditing } from './lib/editing.svelte';
@@ -20,10 +22,17 @@
   let clipboard = $state.raw<Key | null>(null);
 
   const editing = new ConfigEditing(() => status?.config_revision, keepViewValid);
+  navigation.openAddons = () => (view = { kind: 'addons' });
+
+  /** The whole status, and the addons' list the editors read from it. */
+  function show(s: Status) {
+    status = s;
+    addons.list = s.addons;
+  }
 
   onMount(() => {
-    getStatus().then((s) => (status = s));
-    const stopStatus = onStatus((s) => (status = s));
+    getStatus().then(show);
+    const stopStatus = onStatus(show);
     // Between whole statuses, the visor alone (every second or two).
     const stopScreen = onScreen((screen) => {
       if (status) status.screen = screen;
@@ -125,6 +134,8 @@
         <NewRule edgeTabs={status.edge_tabs} extension={status.extension} oncreate={createRule} oncancel={() => (view = { kind: 'live' })} />
       {:else if view.kind === 'settings'}
         <Settings bind:config={editing.config} configPath={status.config_path} />
+      {:else if view.kind === 'addons'}
+        <AddonsPage bind:config={editing.config} list={status.addons} configPath={status.config_path} />
       {/if}
     </div>
   </div>

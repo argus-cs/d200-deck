@@ -28,8 +28,17 @@ pub enum Front {
 /// device loop. With `front`, the app or tab is brought forward for the
 /// action and the focus goes back afterwards. `on_error` hears why it failed.
 pub fn run(action: Action, front: Option<Front>, on_error: impl FnOnce(String) + Send + 'static) {
+    run_task(move || execute(&action), front, on_error);
+}
+
+/// Like `run`, for work that is no built-in action (telling an addon).
+pub fn run_task(
+    task: impl FnOnce() -> Result<()> + Send + 'static,
+    front: Option<Front>,
+    on_error: impl FnOnce(String) + Send + 'static,
+) {
     std::thread::spawn(move || {
-        if let Err(e) = run_now(&action, front.as_ref()) {
+        if let Err(e) = run_now(task, front.as_ref()) {
             log::warn!("ação falhou: {e:#}");
             on_error(format!("{e:#}"));
         }
@@ -37,7 +46,7 @@ pub fn run(action: Action, front: Option<Front>, on_error: impl FnOnce(String) +
 }
 
 #[cfg(windows)]
-fn run_now(action: &Action, front: Option<&Front>) -> Result<()> {
+fn run_now(task: impl FnOnce() -> Result<()>, front: Option<&Front>) -> Result<()> {
     use std::time::Duration;
 
     use crate::context::{bring_to_front, give_back};
@@ -54,7 +63,7 @@ fn run_now(action: &Action, front: Option<&Front>) -> Result<()> {
         // Let the app or page take the keyboard focus before the shortcut arrives.
         std::thread::sleep(Duration::from_millis(120));
     }
-    let result = execute(action);
+    let result = task();
     if front.is_some() {
         std::thread::sleep(Duration::from_millis(120));
     }
@@ -68,8 +77,8 @@ fn run_now(action: &Action, front: Option<&Front>) -> Result<()> {
 }
 
 #[cfg(not(windows))]
-fn run_now(action: &Action, _front: Option<&Front>) -> Result<()> {
-    execute(action)
+fn run_now(task: impl FnOnce() -> Result<()>, _front: Option<&Front>) -> Result<()> {
+    task()
 }
 
 pub fn describe(action: &Action) -> String {
@@ -80,6 +89,7 @@ pub fn describe(action: &Action) -> String {
         Action::Text { text } => format!("digitar {} caracteres", text.chars().count()),
         Action::Media { key } => format!("mídia {key:?}"),
         Action::System { setting, set, value } => crate::system::describe(*setting, *set, value.as_deref()),
+        Action::Addon { addon, action, .. } => format!("addon {addon}: {action}"),
     }
 }
 
@@ -190,6 +200,8 @@ pub fn execute(action: &Action) -> Result<()> {
         Action::Open { target, args, .. } => win::open(target, args.as_deref()),
         Action::Command { command } => win::command(command),
         Action::System { setting, set, value } => crate::system::apply(*setting, *set, value.as_deref()),
+        // The engine hands these to the addon (`addons::Addons::press`).
+        Action::Addon { addon, .. } => bail!("a ação do addon {addon} só roda pelo motor do D200 Deck"),
     }
 }
 

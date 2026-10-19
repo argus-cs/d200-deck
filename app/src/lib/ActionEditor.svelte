@@ -1,4 +1,6 @@
 <script lang="ts">
+  import AddonFields from './AddonFields.svelte';
+  import { actionValue, enabledActions, findAction, newAddonAction, type AddonActionRef } from './addons.svelte';
   import { audioDevices, otherApps, pickFile } from './api';
   import { hotkeyFrom } from './hotkey';
   import {
@@ -10,6 +12,9 @@
     opensSite,
     settingInfo,
     type Action,
+    type AddonAction,
+    type AddonChoice,
+    type AddonStatus,
     type EdgePage,
     type RunningApp,
     type Setting,
@@ -23,6 +28,8 @@
     noneLabel = 'Nenhuma',
     edgePages = [],
     onpick,
+    onaddon,
+    onaddonchoice,
   }: {
     action: Action | null | undefined;
     /** Prefix for the field ids, so two editors can share a page. */
@@ -33,7 +40,22 @@
     /** A Windows setting or its choice was picked, so the key can take a matching look;
      * `previous` is the setting it replaced, whose suggested look may go too. */
     onpick?: (action: Extract<Action, { type: 'system' }>, previous: Extract<Action, { type: 'system' }> | null) => void;
+    /** An addon's action was picked, so the key can take the look it suggests. */
+    onaddon?: (addon: AddonStatus, def: AddonAction) => void;
+    /** A choice of an addon's list was picked (a game), with the look it suggests. */
+    onaddonchoice?: (addon: string, choice: AddonChoice) => void;
   } = $props();
+
+  /** The enabled addons' actions, offered in the picker. */
+  const addonActions = $derived(enabledActions());
+  /** The value the picker shows: an addon's action is "addon:<id>:<action>". */
+  const picked = $derived(action?.type === 'addon' ? actionValue(action.addon, action.action) : (action?.type ?? ''));
+  /** An addon action the picker doesn't offer (its addon is off or gone): it still shows. */
+  const kept = $derived.by(() => {
+    if (action?.type !== 'addon' || addonActions.some((a) => actionValue(a.addon.id, a.def.id) === picked)) return null;
+    const found = findAction(action);
+    return found ? `${found.addon.name} › ${found.def.name}` : `${action.addon} › ${action.action}`;
+  });
 
   const GROUPS: { kind: SettingKind; label: string }[] = [
     { kind: 'on_off', label: 'Ligar e desligar' },
@@ -143,7 +165,14 @@
   }
 
   function setType(type: string) {
-    action = type ? newAction(type as Action['type']) : null;
+    if (type.startsWith('addon:')) {
+      const chosen = addonActions.find((a) => actionValue(a.addon.id, a.def.id) === type);
+      if (!chosen) return;
+      action = newAddonAction(chosen.addon, chosen.def);
+      onaddon?.(chosen.addon, chosen.def);
+      return;
+    }
+    action = type ? newAction(type as Exclude<Action['type'], 'addon'>) : null;
     if (action?.type === 'system') onpick?.(action, null);
   }
 
@@ -176,9 +205,17 @@
 
 <div class="field">
   <label class="name" for={`${id}-type`}>Ação</label>
-  <select id={`${id}-type`} value={action?.type ?? ''} onchange={(e) => setType(e.currentTarget.value)}>
+  <select id={`${id}-type`} value={picked} onchange={(e) => setType(e.currentTarget.value)}>
     <option value="">{noneLabel}</option>
     {#each ACTION_TYPES as type (type.value)}<option value={type.value}>{type.label}</option>{/each}
+    {#if addonActions.length > 0 || kept}
+      <optgroup label="Addons">
+        {#each addonActions as { addon, def } (actionValue(addon.id, def.id))}
+          <option value={actionValue(addon.id, def.id)}>{addon.name} › {def.name}</option>
+        {/each}
+        {#if kept}<option value={picked}>{kept} (indisponível)</option>{/if}
+      </optgroup>
+    {/if}
   </select>
 </div>
 
@@ -316,6 +353,13 @@
       {#if info.kind === 'choice'}A tecla escurece enquanto outra opção estiver em uso.{/if}
     </span>
   </div>
+{:else if action?.type === 'addon'}
+  {@const addon = action.addon}
+  <AddonFields
+    bind:action={() => action as AddonActionRef, (changed) => (action = changed)}
+    {id}
+    onchoice={(choice) => onaddonchoice?.(addon, choice)}
+  />
 {/if}
 
 <style>

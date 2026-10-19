@@ -1,8 +1,9 @@
 //! What the engine reports to the app: the `Status` it publishes when
 //! something it shows changes, and the `Activity` of each key press.
 
-use super::keys::{cached_icon, face};
+use super::keys::cached_icon;
 use super::*;
+use crate::addons::AddonStatus;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Status {
@@ -37,6 +38,8 @@ pub struct Status {
     pub folder: Option<String>,
     /// Holding the visor put the default layout up until a key is used.
     pub default_keys: bool,
+    /// Every folder in the addons folder, with its addon's state and actions.
+    pub addons: Vec<AddonStatus>,
 }
 
 /// The visor as it is now.
@@ -183,7 +186,7 @@ impl State {
                     .map(|(_, losers)| losers.iter().map(|&i| self.config.rules[i].name.clone()).collect())
                     .unwrap_or_default();
                 let toggled = slot.is_some_and(|s| self.live.toggled(&self.config, s, number));
-                let current = slot.map(|s| face(&s.key, toggled));
+                let current = slot.map(|s| self.live.face(&s.key, toggled));
                 let default_text = icons::default_text_color(&self.config.label);
                 let image = slot
                     .zip(current.as_ref())
@@ -196,7 +199,7 @@ impl State {
                 let action = match () {
                     _ if in_folder && number == BACK_KEY => Some("voltar".to_string()),
                     _ if slot.is_some_and(|s| s.key.folder.is_some()) => Some("abrir pasta".to_string()),
-                    _ => current.as_ref().and_then(|f| f.action).map(actions::describe),
+                    _ => current.as_ref().and_then(|f| f.action).map(|action| self.describe(action)),
                 };
                 KeyStatus {
                     number,
@@ -242,6 +245,7 @@ impl State {
             screen,
             folder: self.open_folder_key().map(|(key, _)| if key.label.is_empty() { "Pasta".to_string() } else { key.label.clone() }),
             default_keys: self.default_keys.is_some(),
+            addons: self.addons.statuses(),
         }
     }
 }

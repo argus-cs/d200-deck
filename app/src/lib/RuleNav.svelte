@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { addonsSummary } from './addons.svelte';
   import Icon from './Icon.svelte';
   import { modeName, ruleActive, ruleTarget, type Rule, type RuleStatus, type View } from './types';
 
@@ -18,6 +19,16 @@
 
   let draggingRule = $state<number | null>(null);
   let overRule = $state<number | null>(null);
+
+  const summary = $derived(addonsSummary());
+  const addonsText = $derived.by(() => {
+    const { running, stopped, total } = summary;
+    if (total === 0) return 'nenhum instalado';
+    const parts = [];
+    if (running > 0) parts.push(`${running} rodando`);
+    if (stopped > 0) parts.push(`${stopped} ${stopped === 1 ? 'parou' : 'pararam'}`);
+    return parts.length > 0 ? parts.join(' · ') : 'nenhum ligado';
+  });
 
   const isView = (kind: View['kind'], index?: number) =>
     view.kind === kind && (index === undefined || (view.kind === 'rule' && view.index === index));
@@ -92,6 +103,11 @@
   {/if}
 
   <div class="spacer"></div>
+  <button type="button" class="nav-item" aria-current={isView('addons') ? 'page' : undefined} onclick={() => (view = { kind: 'addons' })}>
+    <Icon name="puzzle" />
+    <span class="nav-text"><span>Addons</span><span class="muted small">{addonsText}</span></span>
+    {#if summary.stopped > 0}<span class="stopped" title="Um addon parou" aria-label="Um addon parou"></span>{/if}
+  </button>
   <button type="button" class="nav-item" aria-current={isView('settings') ? 'page' : undefined} onclick={() => (view = { kind: 'settings' })}>
     <Icon name="settings" /><span>Ajustes</span>
   </button>
@@ -126,6 +142,14 @@
   .nav-item[aria-current='page'] {
     background: var(--selected);
     color: var(--text);
+  }
+  .stopped {
+    flex: none;
+    margin-left: auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--error-text);
   }
   .nav-item.disabled {
     opacity: 0.55;

@@ -167,14 +167,13 @@ impl State {
             number: WINDOW_INDEX as u8 + 1,
             label,
             rule: self.screen_origin(rule),
-            action: action.as_ref().map(actions::describe),
+            action: action.as_ref().map(|action| self.describe(action)),
             error: None,
         };
         (self.on_activity)(&activity);
         if let Some(action) = action {
-            info!("visor: {}", actions::describe(&action));
-            let sink = Arc::clone(&self.on_activity);
-            actions::run(action, None, move |error| sink(&Activity { error: Some(error), ..activity }));
+            info!("visor: {}", self.describe(&action));
+            self.run_action(action, None, activity);
         }
     }
 }

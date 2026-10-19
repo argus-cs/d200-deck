@@ -497,6 +497,12 @@ export function opensApp(target: string): boolean {
   return name.endsWith('.exe') || (name.length > 0 && !name.includes('.'));
 }
 
+/** Whether an "open" target is a web page, whose key follows Edge's tabs of
+ * the site, like `Action::watched_site`. */
+export function opensSite(target: string): boolean {
+  return /^https?:\/\/[^/?#"]/i.test(target.trim().replace(/^"/, ''));
+}
+
 /** Which page the window shows. */
 export type View = { kind: 'live' } | { kind: 'default' } | { kind: 'rule'; index: number } | { kind: 'new' } | { kind: 'settings' };
 

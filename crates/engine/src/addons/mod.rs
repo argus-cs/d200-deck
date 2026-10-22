@@ -3,7 +3,9 @@
 //! a process of its own while enabled and talked to over its stdin and
 //! stdout (`protocol`). One that quits is started again, a few times. The
 //! engine owns the `Host`; `Addons` reaches the running ones from any thread.
+//! The `catalog` lists addons to install.
 
+pub mod catalog;
 pub mod manifest;
 pub mod protocol;
 
@@ -25,6 +27,7 @@ pub use protocol::{context_of, KeyState, Settings};
 
 use crate::config::Action;
 use crate::icons::fit;
+use catalog::{Staged, Temp};
 use manifest::Found;
 use protocol::{FromAddon, Level, Line, ToAddon, Watched};
 
@@ -49,6 +52,13 @@ pub fn folder(config_dir: &Path) -> PathBuf {
 /// Where an addon keeps its own files (its `data_dir`).
 pub fn data_folder(config_dir: &Path, id: &str) -> PathBuf {
     config_dir.join("addon-data").join(id)
+}
+
+/// Where addons are unpacked before they go in place, and where replaced or
+/// removed ones go before they are deleted: beside the addons folder (a
+/// rename can't cross disks) but out of it, so a scan never lists them.
+pub fn staging(config_dir: &Path) -> PathBuf {
+    config_dir.join("addon-staging")
 }
 
 /// Talks to the running addons from any thread: key presses from action
@@ -276,6 +286,8 @@ impl Host {
     /// Finds the addons beside config.json and those that came with the app
     /// (`bundled`, a folder of addon folders); none runs until `apply` enables it.
     pub fn new(config_dir: &Path, bundled: Option<PathBuf>) -> Self {
+        // What a closed app left there: an unpacked addon, or one it couldn't delete.
+        let _ = std::fs::remove_dir_all(staging(config_dir));
         let (events_tx, events) = channel();
         let mut host = Self {
             dir: folder(config_dir),
@@ -336,6 +348,61 @@ impl Host {
     pub fn retry(&mut self, id: &str) {
         self.stop(id);
         self.sync();
+    }
+
+    /// Puts an addon from the catalog in place of the person's addon with its
+    /// id (an update), or in a new folder named after it. It stops first:
+    /// Windows keeps the folder of a running program. Reading the folder
+    /// again starts it if it is enabled.
+    pub fn install(&mut self, staged: Staged) -> Result<()> {
+        let id = staged.manifest.id.clone();
+        let current = self.found.iter().find(|found| !found.bundled && found.manifest.as_ref().is_ok_and(|m| m.id == id));
+        let current = current.map(|found| found.folder.clone());
+        let target = current.clone().unwrap_or_else(|| free_folder(&self.dir, &id));
+        self.stop(&id);
+        let installed = (|| {
+            let old = current.as_deref().map(|folder| self.set_aside(folder)).transpose()?;
+            std::fs::create_dir_all(&self.dir)?;
+            if let Err(e) = move_folder(&staged.folder, &target) {
+                // The old one goes back, to keep working.
+                if let Some(old) = &old {
+                    let _ = move_folder(old.path(), &target);
+                }
+                return Err(e);
+            }
+            info!("addon {id} {} instalado em {}", staged.manifest.version, target.display());
+            Ok(old)
+        })();
+        self.rescan();
+        // The old folder is deleted now, with nothing running from it.
+        installed.map(drop)
+    }
+
+    /// Deletes an addon the person put in the addons folder, by the folder's
+    /// name, stopping it first. Its data folder stays, for when it comes back.
+    pub fn remove(&mut self, folder: &str) -> Result<()> {
+        // Not one that came with the app: those live in its install folder.
+        let found = self.found.iter().find(|found| !found.bundled && manifest::folder_name(&found.folder) == folder);
+        let (path, id) = found
+            .map(|found| (found.folder.clone(), found.manifest.as_ref().ok().map(|m| m.id.clone())))
+            .ok_or_else(|| anyhow!("a pasta {folder} não está entre os addons que você instalou"))?;
+        if let Some(id) = id {
+            self.stop(&id);
+        }
+        let removed = self.set_aside(&path);
+        self.rescan();
+        removed.map(|old| {
+            info!("addon da pasta {folder} removido");
+            drop(old);
+        })
+    }
+
+    /// Moves an addon's folder out of the addons folder, to be deleted when
+    /// what this returns is dropped.
+    fn set_aside(&self, folder: &Path) -> Result<Temp> {
+        let aside = Temp::new(&staging(&self.config_dir), &format!("{}-old", manifest::folder_name(folder)))?;
+        move_folder(folder, aside.path()).context("feche os programas abertos de dentro da pasta do addon e tente de novo")?;
+        Ok(aside)
     }
 
     fn sync(&mut self) {
@@ -628,6 +695,33 @@ impl Drop for Host {
     }
 }
 
+/// `dir/<id>`, or `<id>-2`, `<id>-3`… when a folder has that name.
+fn free_folder(dir: &Path, id: &str) -> PathBuf {
+    let mut candidate = dir.join(id);
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = dir.join(format!("{id}-{n}"));
+        n += 1;
+    }
+    candidate
+}
+
+/// Renames a folder, trying a few times: right after a process ends, or
+/// while an antivirus reads the files, Windows may hold it for a moment.
+fn move_folder(from: &Path, to: &Path) -> Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(_) if tries < 5 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(e).with_context(|| format!("não consegui mover {} para {}", from.display(), to.display())),
+        }
+    }
+}
+
 /// How the process ended. Its stdout closes as it quits, slightly before
 /// Windows reports it ended; one that keeps running without it is ended here.
 fn exit_code(child: &mut Child) -> Option<i32> {
@@ -914,6 +1008,45 @@ mod tests {
         // Trying again starts afresh (and fails again here).
         host.retry("nao.abre");
         assert_eq!(host.statuses()[1].state, AddonState::Stopped);
+    }
+
+    /// An update from the catalog takes the place of the running addon, which
+    /// starts again in its new version; removing one stops it and keeps its data.
+    #[test]
+    fn installs_updates_and_removes_addons() {
+        let main = include_str!("../../../../docs/addons/exemplo/main.js");
+        let example = include_str!("../../../../docs/addons/exemplo/addon.json");
+        let dir = config_dir("install", &[("exemplo", example, &[("main.js", main)])]);
+        let mut host = Host::new(&dir, None);
+        host.apply(&["exemplo.contador".to_string()]);
+        wait_for(&mut host, "o addon rodando", |host| host.running().contains("exemplo.contador"));
+        let unpack = |files: &[(&str, &str)], manifest: &str| {
+            let zip = catalog::zip_of(files);
+            catalog::unpack(&zip, &catalog::entry_of(&zip, manifest), &staging(&dir)).unwrap()
+        };
+        let folders = |host: &Host| host.statuses().iter().map(|status| status.folder.clone()).collect::<Vec<_>>();
+
+        let newer = example.replace(r#""version": "0.1.0""#, r#""version": "0.2.0""#);
+        host.install(unpack(&[("contador/addon.json", &newer), ("contador/main.js", main)], &newer)).unwrap();
+        assert_eq!(folders(&host), ["exemplo"], "in the same folder");
+        assert_eq!(host.statuses()[0].version, "0.2.0");
+        wait_for(&mut host, "a versão nova rodando", |host| host.running().contains("exemplo.contador"));
+
+        // A new one gets a folder named after it, with a number when the name is taken.
+        std::fs::create_dir_all(folder(&dir).join("outro.addon")).unwrap();
+        let other = r#"{ "id": "outro.addon", "name": "Outro", "version": "1.0.0", "api": 1, "run": ["node"] }"#;
+        host.install(unpack(&[("addon.json", other)], other)).unwrap();
+        assert_eq!(folders(&host), ["exemplo", "outro.addon", "outro.addon-2"]);
+
+        host.remove("exemplo").unwrap();
+        assert!(host.running().is_empty());
+        assert!(!folder(&dir).join("exemplo").exists());
+        assert!(data_folder(&dir, "exemplo.contador").exists(), "its data stays");
+        // A folder whose addon.json didn't load goes too.
+        host.remove("outro.addon").unwrap();
+        assert_eq!(folders(&host), ["outro.addon-2"]);
+        assert!(host.remove("nao-existe").is_err());
+        assert_eq!(std::fs::read_dir(staging(&dir)).unwrap().count(), 0, "nothing left aside");
     }
 
     #[test]

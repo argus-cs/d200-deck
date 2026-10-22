@@ -11,9 +11,7 @@ chrono.workspace = true
 hidapi.workspace = true
 image = { workspace = true, features = ["png", "gif"] }
 serde_json.workspace = true
-# The major the updater uses (one zip built), deflating with flate2's default
-# backend as before; zopfli (levels above 9) is left out.
-zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+zip.workspace = true
 
 # A tool with no tests: `cargo test` needn't link a harness for it (CI checks it builds).
 [[bin]]

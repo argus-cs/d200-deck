@@ -29,6 +29,9 @@
     eyedropper: 'M14.5 6.5l3 3 M16 3l5 5-2.5 2.5-5-5z M14.5 6.5L5 16l-1 4 4-1 9.5-9.5',
     folder: 'M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
     back: 'M9 14L4 9l5-5 M4 9h11a5 5 0 0 1 5 5v6',
+    download: 'M12 4v11 M7 10l5 5 5-5 M5 20h14',
+    trash: 'M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13',
+    link: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
   };
 
   let { name, size = 18 }: { name: string; size?: number } = $props();

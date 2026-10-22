@@ -4,10 +4,13 @@
 mod tray;
 mod update;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 
-use deck_engine::addons::{self, Choice, Settings};
+use deck_engine::addons::{self, catalog, Choice, Settings};
 use deck_engine::config::{Action, Config, KeyFace, LabelStyle, Screen};
 use deck_engine::rules::Simulation;
 use deck_engine::runtime::{self, Command, Engine, Status};
@@ -30,6 +33,8 @@ const MAIN_WINDOW: &str = "main";
 pub struct DeckState {
     engine: OnceLock<Engine>,
     status: Mutex<Status>,
+    /// The addons being installed or removed, by id or folder.
+    addon_jobs: Mutex<HashSet<String>>,
 }
 
 impl DeckState {
@@ -37,6 +42,26 @@ impl DeckState {
         if let Some(engine) = self.engine.get() {
             engine.send(command);
         }
+    }
+}
+
+/// An addon being installed or removed, until this goes.
+struct AddonJob<'a> {
+    jobs: &'a Mutex<HashSet<String>>,
+    name: String,
+}
+
+impl<'a> AddonJob<'a> {
+    /// `None` while another job has this addon.
+    fn start(state: &'a DeckState, name: &str) -> Option<Self> {
+        let jobs = &state.addon_jobs;
+        jobs.lock().unwrap().insert(name.to_string()).then(|| Self { jobs, name: name.to_string() })
+    }
+}
+
+impl Drop for AddonJob<'_> {
+    fn drop(&mut self) {
+        self.jobs.lock().unwrap().remove(&self.name);
     }
 }
 
@@ -307,6 +332,56 @@ fn retry_addon(state: State<DeckState>, id: String) {
     state.send(Command::RetryAddon(id));
 }
 
+/// The addon catalog, downloaded at most once a day, or now with `refresh`.
+#[tauri::command]
+async fn addon_catalog(refresh: bool) -> CmdResult<catalog::Listing> {
+    blocking(move || catalog::list(&config_dir(), refresh)).await
+}
+
+/// Downloads an addon of the catalog and puts it in the addons folder, in
+/// place of the installed one for an update. Only the id comes from the
+/// window: the address and the hash come from the catalog on disk. A second
+/// call while it installs does nothing (Tauri's IPC may send a command again).
+#[tauri::command]
+async fn install_addon(state: State<'_, DeckState>, id: String) -> CmdResult<()> {
+    let Some(_job) = AddonJob::start(&state, &id) else {
+        return Ok(());
+    };
+    let engine = engine(&state)?;
+    let staged = blocking(move || catalog::fetch(&config_dir(), &addons::staging(&config_dir()), &id)).await?;
+    let (reply, answer) = channel();
+    engine.send(Command::InstallAddon(staged, reply));
+    blocking(move || engine_answer(answer)).await
+}
+
+/// Deletes an addon the person installed, by its folder's name.
+#[tauri::command]
+async fn remove_addon(state: State<'_, DeckState>, folder: String) -> CmdResult<()> {
+    let Some(_job) = AddonJob::start(&state, &folder) else {
+        return Ok(());
+    };
+    let (reply, answer) = channel();
+    engine(&state)?.send(Command::RemoveAddon(folder, reply));
+    blocking(move || engine_answer(answer)).await
+}
+
+/// What the engine says about a command it answers. It takes commands every
+/// tenth of a second, with or without the device.
+fn engine_answer(answer: Receiver<anyhow::Result<()>>) -> anyhow::Result<()> {
+    answer.recv_timeout(Duration::from_secs(60)).map_err(|_| anyhow::anyhow!("o motor não respondeu"))?
+}
+
+/// An addon's page, in the browser: only the https address its entry in
+/// the catalog gives, so the window can't open others through it.
+#[tauri::command]
+async fn open_addon_page(id: String) -> CmdResult<()> {
+    let entry = blocking(move || catalog::find(&config_dir(), &id)).await?;
+    match entry.homepage {
+        Some(page) if page.starts_with("https://") => open(page, None),
+        _ => Err(anyhow::anyhow!("o {} não tem uma página", entry.name).into()),
+    }
+}
+
 #[tauri::command]
 async fn open_addons_folder() -> CmdResult<()> {
     let folder = addons::folder(&config_dir());
@@ -531,6 +606,10 @@ fn main() {
             addon_icon,
             rescan_addons,
             retry_addon,
+            addon_catalog,
+            install_addon,
+            remove_addon,
+            open_addon_page,
             open_addons_folder,
             open_addons_guide,
             open_log,

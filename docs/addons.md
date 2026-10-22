@@ -4,14 +4,29 @@ Addons trazem ações novas para as teclas do D200 Deck: jogos, apps e serviços
 
 ## Para quem usa
 
-### Instalar
+### Instalar pelo catálogo
+
+1. Abra a página **Addons** no D200 Deck e vá para **Catálogo**.
+2. Busque pelo nome, pelo que o addon faz ou por um assunto ("música", "jogos"). A busca ignora acentos.
+3. Clique em **Instalar**. O app baixa o addon, confere se o arquivo é o mesmo que foi revisado para o catálogo e o põe na pasta de addons.
+4. O app volta para **Instalados** e mostra quem fez o addon e o que ele vai rodar. Ligue se quiser usar.
+
+Quando o catálogo tem uma versão mais nova de um addon que você instalou, **Instalados** mostra **Atualizar para X**. A atualização para o addon, troca a pasta dele e o abre de novo; as teclas e os dados dele continuam.
+
+A lista do catálogo é baixada no máximo uma vez por dia (**Atualizar a lista** baixa agora). Sem internet, aparece a lista da última vez.
+
+### Instalar à mão
 
 1. Abra a página **Addons** no D200 Deck e clique em **Abrir a pasta de addons** (`%APPDATA%\D200Deck\addons`).
 2. Copie para lá a pasta do addon. Cada addon fica numa pasta própria, com um `addon.json` dentro.
 3. Volte à página **Addons**: ela procura de novo ao abrir, ou clique em **Procurar de novo**.
 4. Ligue o addon na chave dele. Na primeira vez, o app mostra quem fez o addon e o que ele vai rodar, e pede confirmação.
 
-Um addon novo chega sempre desligado.
+Um addon novo chega sempre desligado, venha do catálogo ou não.
+
+### Remover
+
+**Remover**, em **Instalados**, para o addon e apaga a pasta dele. As teclas dele ficam escuras e guardam o que foi configurado, e a pasta de dados (`%APPDATA%\D200Deck\addon-data\<id>`) fica, para quando você instalar de novo. Os addons que vêm com o app não podem ser removidos, só desligados.
 
 ### O addon da Steam
 
@@ -37,6 +52,7 @@ O visual da tecla continua sendo seu: ícone, texto, cores e segundo estado se m
 Um addon é um programa como outro qualquer: roda com as suas permissões do Windows e pode ler e mudar os seus arquivos, acessar a internet e apertar teclas. Instale só addons de quem você confia. O D200 Deck não limita o que o addon faz. O que ele garante:
 
 - O addon só roda depois que você liga.
+- Os addons do catálogo são revisados antes de entrar, e o app só instala o arquivo exato que foi revisado: o catálogo guarda o tamanho e o SHA-256 de cada zip. O zip não pode ter links nem caminhos que saiam da pasta do addon.
 - A janela do app nunca mostra conteúdo do addon: os campos são desenhados pelo próprio app a partir do `addon.json`.
 - As imagens que o addon sugere só são aceitas de dentro da pasta dele ou da pasta de dados dele.
 - Quando o D200 Deck fecha, ou mesmo se ele cair, o Windows encerra os addons junto.
@@ -193,3 +209,47 @@ for line in sys.stdin:
 ```
 
 Com `"run": ["python", "main.py"]` no `addon.json`. O `flush=True` importa: sem ele, o Python guarda a saída e o app só recebe a resposta muito depois.
+
+### Publicar no catálogo
+
+O catálogo fica no repositório [argus-cs/d200-deck-addons](https://github.com/argus-cs/d200-deck-addons): um `catalog.json` com uma entrada por addon, que o app baixa de lá. Para pôr o seu:
+
+1. Faça um zip do addon, com o `addon.json` na raiz do zip ou numa pasta única dentro dele (como nos zips que o GitHub faz de um repositório). Só arquivos e pastas: links não são aceitos. O zip vai até 100 MB, e descompactado, até 300 MB.
+2. Publique o zip num endereço `https` que não mude, como um arquivo de um release do GitHub. Cada versão é um arquivo novo: o catálogo guarda o tamanho e o SHA-256, e um arquivo trocado no mesmo endereço não instala mais.
+3. No repositório do catálogo, `python scripts/catalog.py entry <zip> <endereço>` escreve a entrada a partir do zip. Acrescente `tags`, `homepage` e `requires` e abra um PR que a ponha no `catalog.json`.
+4. O PR baixa o zip e confere se ele bate com a entrada. Depois vem a revisão de quem cuida do catálogo: o que o addon roda e o que ele faz.
+
+Uma entrada:
+
+```json
+{
+  "id": "exemplo.contador",
+  "name": "Contador",
+  "version": "0.1.0",
+  "author": "D200 Deck",
+  "description": "Addon de exemplo: conta toques e liga e desliga coisas de mentira. Serve de modelo para fazer o seu.",
+  "api": 1,
+  "actions": ["Contar", "Ligar e desligar"],
+  "tags": ["exemplo", "desenvolvimento"],
+  "homepage": "https://github.com/argus-cs/d200-deck/tree/main/docs/addons/exemplo",
+  "requires": ["node"],
+  "download": {
+    "url": "https://github.com/argus-cs/d200-deck-addons/releases/download/exemplo.contador-0.1.0/exemplo.contador-0.1.0.zip",
+    "size": 2316,
+    "sha256": "0a9a79164eb8737685f8bafd58cb305d29a18e0ec5cd6e4de721bcb35af3cf90"
+  }
+}
+```
+
+| Campo | O que é |
+|---|---|
+| `id`, `name`, `version`, `author`, `description`, `api` | Iguais aos do `addon.json` do zip; o app recusa um zip com outro `id` ou outra `version`. |
+| `actions` | Os nomes das ações, para a busca. |
+| `tags` | Assuntos, também para a busca ("jogos", "música"). |
+| `homepage` | Opcional: uma página `https` do addon, aberta pelo botão **Página do addon**. |
+| `requires` | Os programas que o addon precisa no PATH (`node`, `python`). O app avisa antes de instalar quando não acha um deles. |
+| `download` | O endereço `https` do zip (pode redirecionar, como os do GitHub), o tamanho em bytes e o SHA-256 em hexadecimal. |
+
+Um addon feito para uma versão do protocolo (`api`) mais nova que a do app aparece no catálogo, mas só instala depois de o app ser atualizado.
+
+Para lançar uma versão nova, publique o zip novo e mande um PR que troque `version` e `download`. Quem tem a versão anterior vê **Atualizar** no app.

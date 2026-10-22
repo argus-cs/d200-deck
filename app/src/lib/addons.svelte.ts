@@ -53,6 +53,16 @@ export function addonProblem(action: AddonActionRef): string | null {
   return null;
 }
 
+/** Whether version `a` comes after `b`, by their numbers: "1.10.0" after "1.9.2". A suffix ("-beta") doesn't count. */
+export function newerVersion(a: string, b: string): boolean {
+  const numbers = (version: string) => version.split(/[-+]/)[0].split('.').map((part) => parseInt(part, 10) || 0);
+  const [x, y] = [numbers(a), numbers(b)];
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  }
+  return false;
+}
+
 /** For the navigation: how many run, and whether one stopped. */
 export function addonsSummary(): { running: number; stopped: number; total: number } {
   const valid = addons.list.filter((addon) => addon.state !== 'invalid');

@@ -115,6 +115,32 @@ export interface AddonChoice {
   icon?: string | null;
 }
 
+/** An addon of the catalog (`catalog::Listed`). */
+export interface CatalogAddon {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  api: number;
+  /** Its actions' names. */
+  actions: string[];
+  tags: string[];
+  homepage?: string | null;
+  /** Programs it needs in PATH ("node"). */
+  requires: string[];
+  /** This app speaks the protocol version it was made for. */
+  supported: boolean;
+  /** The programs it needs that this PC lacks. */
+  missing: string[];
+}
+
+export interface Catalog {
+  addons: CatalogAddon[];
+  /** Why the list may be old: it couldn't be downloaded, and the last copy shows. */
+  offline: string | null;
+}
+
 export interface ScreenStatus {
   image: string | null;
   content: ScreenContent['type'] | '';

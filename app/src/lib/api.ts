@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { Activity, AddonChoice, Config, Glyph, RunningApp, Screen, ScreenStatus, Setting, Simulation, Status } from './types';
+import type { Activity, AddonChoice, Catalog, Config, Glyph, RunningApp, Screen, ScreenStatus, Setting, Simulation, Status } from './types';
 
 export const getStatus = () => invoke<Status>('get_status');
 export const onStatus = (handler: (status: Status) => void) =>
@@ -95,6 +95,14 @@ export const addonIcon = (addon: string, icon: string) => invoke<string>('addon_
 export const rescanAddons = () => invoke('rescan_addons');
 /** Starts an addon that gave up (it quit too often) again. */
 export const retryAddon = (id: string) => invoke('retry_addon', { id });
+/** The addon catalog, downloaded at most once a day (now, with `refresh`). */
+export const addonCatalog = (refresh: boolean) => invoke<Catalog>('addon_catalog', { refresh });
+/** Downloads an addon of the catalog into the addons folder; the status brings it. */
+export const installAddon = (id: string) => invoke('install_addon', { id });
+/** Deletes an addon the person installed, by its folder's name. */
+export const removeAddon = (folder: string) => invoke('remove_addon', { folder });
+/** The page the catalog gives for an addon, in the browser. */
+export const openAddonPage = (id: string) => invoke('open_addon_page', { id });
 export const openAddonsFolder = () => invoke('open_addons_folder');
 /** docs/addons.md on GitHub, in the browser. */
 export const openAddonsGuide = () => invoke('open_addons_guide');

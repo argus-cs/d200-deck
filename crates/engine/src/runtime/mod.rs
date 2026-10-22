@@ -22,6 +22,7 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::actions::{self, Front};
+use crate::addons::catalog::Staged;
 use crate::addons::{self, context_of, Addons, KeyState};
 use crate::browser::{self, Bridge};
 use crate::config::{Action, Appearance, Config, Folder, Key, Rule, RuleMode, SettingId, When, Window, BACK_KEY};
@@ -85,6 +86,10 @@ pub enum Command {
     RescanAddons,
     /// Starts an addon that gave up (it quit too often) again.
     RetryAddon(String),
+    /// Puts an addon from the catalog in place (`Host::install`) and answers.
+    InstallAddon(Staged, Sender<Result<()>>),
+    /// Deletes the addon in this folder of the addons folder and answers.
+    RemoveAddon(String, Sender<Result<()>>),
 }
 
 type ActivitySink = Arc<dyn Fn(&Activity) + Send + Sync>;
@@ -498,6 +503,12 @@ impl State {
                 }
                 Command::RescanAddons => self.addons.rescan(),
                 Command::RetryAddon(id) => self.addons.retry(&id),
+                Command::InstallAddon(staged, reply) => {
+                    let _ = reply.send(self.addons.install(staged));
+                }
+                Command::RemoveAddon(folder, reply) => {
+                    let _ = reply.send(self.addons.remove(&folder));
+                }
             }
             self.status_dirty = true;
         }

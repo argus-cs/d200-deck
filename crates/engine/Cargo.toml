@@ -17,10 +17,14 @@ log.workspace = true
 resvg = { version = "0.48", default-features = false, features = ["text"] }
 serde.workspace = true
 serde_json.workspace = true
+# Checks the zips of the addon catalog (addons/catalog.rs).
+sha2 = "0.10"
 sysinfo = { version = "0.39", default-features = false, features = ["system", "network"] }
 tungstenite = "0.30"
-# Iconify downloads (iconify.rs).
+# Iconify and addon catalog downloads.
 ureq = "3"
+# Unpacks the addons of the catalog.
+zip.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -62,6 +66,10 @@ name = "deckd"
 test = false
 
 [[bin]]
+name = "try-catalog"
+test = false
+
+[[bin]]
 name = "try-iconify"
 test = false
 
@@ -76,7 +84,3 @@ test = false
 [[bin]]
 name = "try-system"
 test = false
-
-[dev-dependencies]
-# Checks that browser::EXTENSION_ID matches the key in the extension's manifest.
-sha2 = "0.10"

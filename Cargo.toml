@@ -21,6 +21,9 @@ serde_json = "1"
 steam-addon = { path = "crates/steam" }
 # The same version Tauri uses, so it is compiled once (features per crate).
 windows = "0.62"
+# The major the updater uses (one zip built), deflating with flate2's default
+# backend as before; zopfli (levels above 9) is left out.
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
 
 # The installer carries one binary: whole-program optimization makes it
 # smaller, for a longer build. Not panic = "abort": a panic on an action
